@@ -1,0 +1,10 @@
+dependencies {
+    implementation project(':model')
+    implementation "org.mapstruct:mapstruct:${mapstructVersion}"
+    annotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"
+    implementation platform("software.amazon.awssdk:bom:${awsSdk2Version}")
+    implementation 'software.amazon.awssdk:dynamodb-enhanced'
+    implementation 'software.amazon.awssdk:dynamodb'
+    implementation 'software.amazon.awssdk:netty-nio-client'
+    implementation 'org.springframework:spring-context'
+}

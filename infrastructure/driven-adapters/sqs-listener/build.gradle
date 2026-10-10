@@ -1,0 +1,10 @@
+dependencies {
+    implementation project(':model')
+    implementation project(':usecase')
+    implementation project(':sqs-sender')
+    implementation platform("software.amazon.awssdk:bom:${awsSdk2Version}")
+    implementation 'software.amazon.awssdk:sqs'
+    implementation 'software.amazon.awssdk:netty-nio-client'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'org.springframework:spring-context'
+}

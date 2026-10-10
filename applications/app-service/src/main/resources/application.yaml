@@ -1,0 +1,164 @@
+spring:
+  application:
+    name: app-ticketing-nequi
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  access-key: ${AWS_ACCESS_KEY_ID:test}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+  dynamodb:
+    endpoint: ${AWS_DYNAMODB_ENDPOINT:http://localhost:4566}
+    table-events: ${TABLE_EVENTS:ticketing-events}
+    table-inventory: ${TABLE_INVENTORY:ticketing-inventory}
+    table-orders: ${TABLE_ORDERS:ticketing-orders}
+    table-order-history: ${TABLE_ORDER_HISTORY:ticketing-order-history}
+    table-idempotency: ${TABLE_IDEMPOTENCY:ticketing-idempotency}
+  sqs:
+    endpoint: ${AWS_SQS_ENDPOINT:http://localhost:4566}
+    processing-queue-url: ${AWS_SQS_PROCESSING_QUEUE_URL:http://localhost:4566/000000000000/order-processing-queue}
+    expiration-queue-url: ${AWS_SQS_EXPIRATION_QUEUE_URL:http://localhost:4566/000000000000/order-expiration-queue}
+    poll-interval-ms: ${AWS_SQS_POLL_INTERVAL_MS:5000}
+
+app:
+  scheduler:
+    expired-reservations-interval-ms: ${EXPIRED_RESERVATIONS_INTERVAL_MS:60000}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      createEventCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      getEventsCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      getEventByIdCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      createComplimentaryCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      createOrderCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      getOrderCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      confirmOrderCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      cancelOrderCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+      getOrderHistoryCB:
+        registerHealthIndicator: true
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
+        minimumNumberOfCalls: ${CB_MIN_CALLS:5}
+        permittedNumberOfCallsInHalfOpenState: ${CB_HALF_OPEN_CALLS:3}
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: ${CB_WAIT_DURATION_OPEN:30s}
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:80}
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION:10s}
+        recordExceptions:
+          - co.com.nequi.ticketing.model.exception.TechnicalException
+        ignoreExceptions:
+          - co.com.nequi.ticketing.model.exception.BusinessException
+
+logging:
+  level:
+    root: INFO
+    co.com.nequi.ticketing: DEBUG

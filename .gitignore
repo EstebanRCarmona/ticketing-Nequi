@@ -1,0 +1,85 @@
+# ---------- Gradle ----------
+.gradle/
+build/
+build-cache/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+out/
+
+# ---------- IntelliJ IDEA ----------
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+
+# ---------- Eclipse / VS Code / NetBeans ----------
+.classpath
+.project
+.settings/
+.apt_generated
+.factorypath
+.springBeans
+.sts4-cache/
+bin/
+.vscode/
+nbproject/
+
+# ---------- Compilados y empaquetados ----------
+*.class
+*.jar
+*.war
+*.ear
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---------- Logs y temporales ----------
+*.log
+logs/
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ---------- Cobertura y reportes de test ----------
+jacoco/
+*.exec
+reports/
+
+# ---------- Código generado (MapStruct, annotation processors) ----------
+generated/
+**/build/generated/
+
+# ---------- Variables de entorno y secretos ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+application-local.yaml
+application-local.yml
+application-local.properties
+
+# ---------- Terraform ----------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Mantén versionado el lock file:
+# .terraform.lock.hcl  (NO lo ignores)
+
+# ---------- Docker / LocalStack ----------
+.localstack/
+volume/
+localstack-data/

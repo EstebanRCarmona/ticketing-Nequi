@@ -1,0 +1,13 @@
+.gradle/
+.git/
+docs/
+*.md
+src/
+domain/
+infrastructure/
+deployment/
+# Excluir todos los build/ excepto el JAR final
+**/build/
+!applications/app-service/build/
+!applications/app-service/build/libs/
+!applications/app-service/build/libs/*.jar

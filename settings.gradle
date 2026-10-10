@@ -1,0 +1,29 @@
+pluginManagement {
+    repositories {
+        //mavenLocal()
+        gradlePluginPortal()
+    }
+}
+
+buildCache {
+    local {
+        directory = new File(rootDir, 'build-cache')
+    }
+}
+
+rootProject.name = 'app-ticketing-nequi'
+
+include ':app-service'
+include ':model'
+include ':usecase'
+project(':app-service').projectDir = file('./applications/app-service')
+project(':model').projectDir = file('./domain/model')
+project(':usecase').projectDir = file('./domain/usecase')
+include ':reactive-web'
+project(':reactive-web').projectDir = file('./infrastructure/entry-points/reactive-web')
+include ':dynamodb-adapter'
+project(':dynamodb-adapter').projectDir = file('./infrastructure/driven-adapters/dynamodb-reactive')
+include ':sqs-sender'
+project(':sqs-sender').projectDir = file('./infrastructure/driven-adapters/sqs-sender')
+include ':sqs-listener'
+project(':sqs-listener').projectDir = file('./infrastructure/driven-adapters/sqs-listener')

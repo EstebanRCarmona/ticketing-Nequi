@@ -1,0 +1,286 @@
+{
+  "info": {
+    "name": "App Ticketing Nequi API",
+    "description": "Complete ticket purchase flow: create event → reserve → confirm → sold (async via SQS)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "eventId", "value": "" },
+    { "key": "orderId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "1. Create Event (ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.eventId) {",
+                  "  pm.collectionVariables.set('eventId', json.data.eventId);",
+                  "  console.log('eventId set:', json.data.eventId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Role", "value": "ADMIN" },
+              { "key": "X-Trace-Id", "value": "trace-create-event-001" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Concierto Rock 2026\",\n  \"eventDate\": \"2026-12-20T20:00:00Z\",\n  \"venue\": \"Estadio El Campín\",\n  \"category\": \"CONCERT\",\n  \"totalCapacity\": 5000,\n  \"ticketPrice\": 150000.00\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/events"
+          }
+        },
+        {
+          "name": "2. List Events (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Trace-Id", "value": "trace-get-events" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events?limit=10",
+              "query": [{ "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "3. Get Event Detail + Real-time Availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Trace-Id", "value": "trace-get-detail" }
+            ],
+            "url": "{{baseUrl}}/api/v1/events/{{eventId}}"
+          }
+        },
+        {
+          "name": "4. Issue Complimentary Tickets (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Role", "value": "ADMIN" },
+              { "key": "X-User-Id", "value": "admin-usr-001" },
+              { "key": "Idempotency-Key", "value": "idemp-complimentary-001" },
+              { "key": "X-Trace-Id", "value": "trace-complimentary" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 5,\n  \"recipient\": \"Prensa VIP\",\n  \"reason\": \"Promoción Medios\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/events/{{eventId}}/complimentary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders — Happy Path (Reserve → Confirm → SOLD)",
+      "item": [
+        {
+          "name": "5. Create Purchase Order (Reserve)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.orderId) {",
+                  "  pm.collectionVariables.set('orderId', json.data.orderId);",
+                  "  console.log('orderId set:', json.data.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "idemp-order-key-12345" },
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-create-order" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        },
+        {
+          "name": "6. Get Order Status (expect RESERVED)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-query-order" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+          }
+        },
+        {
+          "name": "7. Confirm Order → triggers async payment via SQS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-confirm-order" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentReference\": \"tok_card_visa_123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/confirm"
+          }
+        },
+        {
+          "name": "8. Poll Order Status (expect SOLD after ~5s)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-poll-sold" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+          }
+        },
+        {
+          "name": "9. Get Order Audit History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-history" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/history"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders — Cancel Flow",
+      "item": [
+        {
+          "name": "10. Create Order to Cancel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.data && json.data.orderId) {",
+                  "  pm.collectionVariables.set('orderId', json.data.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "idemp-cancel-flow-001" },
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-cancel-flow" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        },
+        {
+          "name": "11. Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-User-Id", "value": "usr-client-001" },
+              { "key": "X-Trace-Id", "value": "trace-cancel-order" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"CUSTOMER_REQUEST\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/cancel"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Cases",
+      "item": [
+        {
+          "name": "12. Create Order without Idempotency-Key (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-User-Id", "value": "usr-client-001" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        },
+        {
+          "name": "13. Create Event without ADMIN role (expect 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test\",\n  \"totalCapacity\": 100,\n  \"ticketPrice\": 50.0,\n  \"eventDate\": \"2026-01-01T20:00:00Z\",\n  \"venue\": \"Stadium\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/events"
+          }
+        },
+        {
+          "name": "14. Get non-existent Order (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User-Id", "value": "usr-client-001" }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/non-existent-order-id"
+          }
+        },
+        {
+          "name": "15. Idempotency — Replay same order (expect same orderId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "idemp-order-key-12345" },
+              { "key": "X-User-Id", "value": "usr-client-001" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/orders"
+          }
+        }
+      ]
+    }
+  ]
+}

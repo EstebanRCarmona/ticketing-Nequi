@@ -59,7 +59,7 @@ This produces `applications/app-service/build/libs/app-ticketing-nequi.jar`.
 > If you skip this step, Docker will fail with:
 > `COPY failed: no files found for applications/app-service/build/libs/*.jar`
 
-### 2. Grant execute permission to the init script
+### 2. Grant execute permission to the init script (macOS/Linux only)
 
 The LocalStack initialization script must be executable before Docker mounts it:
 
@@ -67,15 +67,25 @@ The LocalStack initialization script must be executable before Docker mounts it:
 chmod +x deployment/init-aws.sh
 ```
 
-> If you skip this step, LocalStack will start but tables and queues will **not** be created, and the app will fail to connect.
+> If you skip this step on macOS/Linux, LocalStack will start but tables and queues will **not** be created, and the app will fail to connect.
 
 ### 3. Start the full environment
 
 ```bash
-docker-compose down && docker-compose up --build -d
+docker compose down && docker compose up --build -d
 ```
 
 The `down` ensures any previous containers are removed before starting fresh.
+
+If you are on Windows, make sure to normalize the line endings in `deployment/init-aws.sh` before running Docker so LocalStack can execute the script during initialization:
+
+```powershell
+$content = [System.IO.File]::ReadAllText("$PWD\deployment\init-aws.sh")
+$content = $content -replace "`r`n", "`n"
+[System.IO.File]::WriteAllText("$PWD\deployment\init-aws.sh", $content, [System.Text.UTF8Encoding]::new($false))
+```
+
+You do not need to run `init-aws.sh` manually. LocalStack executes it automatically when the container starts.
 
 This starts:
 - **LocalStack** — emulates DynamoDB (5 tables) and SQS (2 queues + 2 DLQs) on port `4566`
@@ -88,20 +98,20 @@ Expected startup times:
 
 > Total: ~1 minute until everything is `healthy`. You can monitor with:
 > ```bash
-> docker-compose ps
-> docker logs app_ticketing_nequi -f
+> docker compose ps -a
+> docker compose logs --tail=100
 > ```
 
 ### Rebuild after code changes
 
 ```bash
-docker-compose down && ./gradlew bootJar -x test && docker-compose up --build -d
+docker compose down && ./gradlew bootJar -x test && docker compose up --build -d
 ```
 
 ### Stop
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ---

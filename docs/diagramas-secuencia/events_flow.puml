@@ -1,0 +1,40 @@
+@startuml events_flow
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam roundcorner 8
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #555
+skinparam sequenceLifeLineBorderColor #999
+
+title Events API — High-Level Flow
+
+actor       "Client (ADMIN)"   as C
+participant "EventHandler"     as H
+participant "UseCase"          as UC
+participant "DynamoDB"         as DB
+
+== Create Event ==
+C -> H : POST /api/v1/events\n[X-Role: ADMIN]
+H -> UC : CreateEventUseCase
+UC -> DB : TransactWriteItems\n(events + inventory)
+DB --> C : 201 { eventId, name, eventDate, ... }
+
+== List Events ==
+C -> H : GET /api/v1/events?limit=N
+H -> UC : GetEventUseCase.getAllPaginated()
+UC -> DB : Scan events table
+DB --> C : 200 [ { eventId, name, ... } ]
+
+== Get Event Detail ==
+C -> H : GET /api/v1/events/{eventId}
+H -> UC : GetEventUseCase.getEventDetail()
+UC -> DB : GetItem event\n+ GetItem inventory
+DB --> C : 200 { event + real-time availability }
+
+== Issue Complimentary Tickets ==
+C -> H : POST /api/v1/events/{eventId}/complimentary\n[X-Role: ADMIN, Idempotency-Key]
+H -> UC : CreateComplimentaryUseCase
+UC -> DB : TransactWriteItems\n(order COMPLIMENTARY + inventory + idempotency + history)
+DB --> C : 201 { orderId, status: COMPLIMENTARY }
+
+@enduml

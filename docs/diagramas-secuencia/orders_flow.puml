@@ -1,0 +1,66 @@
+@startuml orders_flow
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam roundcorner 8
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #555
+skinparam sequenceLifeLineBorderColor #999
+
+title Orders API — High-Level Flow
+
+actor       "Client"           as C
+participant "OrderHandler"     as H
+participant "UseCase"          as UC
+participant "DynamoDB"         as DB
+participant "SQS"              as SQS
+participant "SQS Consumer"     as CONS
+
+== 1. Reserve (POST /api/v1/orders) ==
+C -> H : POST /api/v1/orders\n[Idempotency-Key, X-User-Id]
+H -> UC : CreateOrderUseCase
+UC -> DB : TransactWriteItems\n(order RESERVED + inventory + idempotency + history)
+UC -> SQS : sendExpireOrderMessage (delay 10 min)
+DB --> C : 201 { orderId, status: RESERVED, expiresAt }
+
+== 2. Confirm (POST /api/v1/orders/{id}/confirm) ==
+C -> H : POST /api/v1/orders/{id}/confirm\n{ paymentReference }
+H -> UC : ConfirmOrderUseCase
+UC -> DB : UpdateItem → PENDING_CONFIRMATION\n[optimistic lock: version]
+UC -> SQS : sendFinalizeOrderMessage
+DB --> C : 202 { orderId, status: PENDING_CONFIRMATION }
+
+== 3. Async Payment (SQS Consumer) ==
+SQS -> CONS : FINALIZE_ORDER message
+CONS -> UC : ProcessOrderAsyncUseCase
+UC -> DB : UpdateItem → SOLD or CANCELLED\n[optimistic lock: version]\n+ PutItem history
+DB --> CONS : ack → deleteMessage
+
+== 4. Cancel (POST /api/v1/orders/{id}/cancel) ==
+C -> H : POST /api/v1/orders/{id}/cancel\n{ reason }
+H -> UC : CancelOrderUseCase
+UC -> DB : UpdateItem → CANCELLED\n[optimistic lock: version]\n+ PutItem history
+DB --> C : 200 { orderId, status: CANCELLED }
+
+== 5. Expiration (automatic) ==
+SQS -> CONS : EXPIRE_ORDER message (after 10 min)
+CONS -> UC : ReleaseExpiredReservationsUseCase
+UC -> DB : UpdateItem → EXPIRED\n[optimistic lock: version]\n+ PutItem history
+
+note over DB
+  Scheduler sweeper runs every 60s
+  as belt-and-suspenders fallback
+  for any missed SQS expirations
+end note
+
+== 6. Get Order / History ==
+C -> H : GET /api/v1/orders/{id}
+H -> UC : GetOrderUseCase
+UC -> DB : GetItem order
+DB --> C : 200 { orderId, status, expiresAt? }
+
+C -> H : GET /api/v1/orders/{id}/history
+H -> UC : GetOrderHistoryUseCase
+UC -> DB : Query history table
+DB --> C : 200 [ { sequence, fromStatus, toStatus, ... } ]
+
+@enduml

@@ -272,17 +272,44 @@ Every response includes:
 
 ## 🧪 Tests and Coverage
 
-```bash
-# Run all tests
-./gradlew test
+The suite has two layers, separated with the JUnit 5 tag `integration`:
 
-# Generate JaCoCo coverage report
-# --no-configuration-cache is required due to a known incompatibility between
-# the pitest plugin and Gradle 9's configuration cache
-./gradlew jacocoMergedReport --no-configuration-cache
+| Layer | Command | Needs Docker | What it covers |
+|---|---|---|---|
+| Unit tests | `./gradlew test` | No | Use cases, handlers, mappers, adapters with mocked AWS SDK, ArchUnit |
+| Integration tests | `./gradlew integrationTest` | **Yes** | Real DynamoDB behavior on LocalStack via **Testcontainers** (conditional writes, transactions, concurrency) |
+
+### Run unit tests
+
+```bash
+./gradlew test
 ```
 
-Report available at `build/reports/jacocoHtml/index.html`. Open it with the command for your OS:
+### Run integration tests (Testcontainers + LocalStack)
+
+Requirements: Docker running (Docker Desktop on Windows/macOS). Testcontainers starts and removes the LocalStack container automatically; you do **not** need `docker compose` for these tests.
+
+```bash
+./gradlew integrationTest
+```
+
+The first run downloads `localstack/localstack:3.4`, `testcontainers/ryuk` and `alpine`, so it can take a few minutes. Later runs take around 15-30 seconds.
+
+**Concurrency test** (`DynamoDBConcurrencyLocalStackTest`): launches N=30 concurrent reservation attempts against an event with M=10 tickets and asserts that exactly 10 succeed, the other 20 are rejected as insufficient inventory, and the final inventory is `available = 0`, `reserved = 10`. It validates the conditional writes and the atomic `TransactWriteItems` against a real DynamoDB engine, which mocks cannot prove.
+
+> If Docker is not available, the integration tests are skipped when the class uses `@Testcontainers(disabledWithoutDocker = true)`. Otherwise they fail with `Could not find a valid Docker environment`.
+
+### Coverage report (minimum 90 %)
+
+```bash
+./gradlew test integrationTest jacocoMergedReport jacocoMergedVerification --no-configuration-cache
+```
+
+- `jacocoMergedReport` merges the execution data of unit and integration tests.
+- `jacocoMergedVerification` **fails the build** if coverage is below 90 %.
+- `--no-configuration-cache` is required due to a known incompatibility between the pitest plugin and Gradle 9's configuration cache.
+
+Report available at `build/reports/jacocoHtml/index.html`:
 
 ```bash
 # Windows
@@ -295,9 +322,21 @@ open build/reports/jacocoHtml/index.html
 xdg-open build/reports/jacocoHtml/index.html
 ```
 
-Test suite covers:
+Classes excluded from the coverage metric: `MainApplication`, `config`, `mapper` (MapStruct generated), `entity`, `dto`, `enums`, `exception` and `model` packages (data carriers without logic).
+
+### Mutation testing (optional)
+
+```bash
+./gradlew pitest pitestReportAggregate --no-configuration-cache
+```
+
+Integration tests (`@Tag("integration")`) are excluded from mutation testing because starting a container for every mutant makes it extremely slow.
+
+### What the test suite covers
+
 - All use cases with Mockito mocks and `StepVerifier`
 - All DynamoDB adapters with mocked AWS SDK clients
+- **Concurrency and transactional integrity against LocalStack (Testcontainers)**
 - Handler endpoints via `WebTestClient`
 - Security headers via `ConfigTest`
 - Architecture rules via ArchUnit

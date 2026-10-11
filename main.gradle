@@ -24,7 +24,20 @@ subprojects {
     //build.dependsOn 'pitest'
 
     test {
-        useJUnitPlatform()
+        useJUnitPlatform {
+            excludeTags 'integration'
+        }
+    }
+
+    tasks.register('integrationTest', Test) {
+        description = 'Runs Testcontainers/LocalStack tests'
+        group = 'verification'
+        useJUnitPlatform {
+            includeTags 'integration'
+        }
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        shouldRunAfter test
     }
 
     dependencies {
@@ -56,8 +69,7 @@ subprojects {
 
     pitest {
         targetClasses = ['co.com.nequi.ticketing.*']
-        excludedClasses = []
-        excludedTestClasses = []
+        excludedTestClasses = ['*LocalStackTest']
         pitestVersion = '1.30.0'
         verbose = false
         outputFormats = ['XML', 'HTML']
@@ -70,6 +82,9 @@ subprojects {
         fileExtensionsToFilter.addAll('xml', 'orbit')
         junit5PluginVersion = '1.2.3'
         failWhenNoMutations = false
+        excludedGroups = ['integration']
+        timeoutConstInMillis = 10000
+        timeoutFactor = new BigDecimal('2.0')
         jvmArgs = ["-XX:+AllowRedefinitionToAddDeleteMethods"]
     }
 
@@ -108,7 +123,7 @@ tasks.register('jacocoMergedReport', JacocoReport) {
             '**/model/**',
         ]
     }
-    executionData.setFrom project.fileTree(dir: '.', include: '**/build/jacoco/test.exec')
+    executionData.setFrom project.fileTree(dir: '.', include: ['**/build/jacoco/test.exec', '**/build/jacoco/integrationTest.exec'])
     reports {
         xml.setRequired true
         csv.setRequired false
@@ -144,6 +159,19 @@ pitestReportAggregate {
                 }
             }
             writer.write("</mutations>")
+        }
+    }
+}
+
+tasks.register('jacocoMergedVerification', JacocoCoverageVerification) {
+    dependsOn tasks.named('jacocoMergedReport')
+    classDirectories.setFrom(tasks.named('jacocoMergedReport').get().classDirectories)
+    executionData.setFrom(tasks.named('jacocoMergedReport').get().executionData)
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.90
+            }
         }
     }
 }

@@ -1,7 +1,6 @@
 package co.com.nequi.ticketing.api.dto.responses;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
 
 import java.math.BigDecimal;

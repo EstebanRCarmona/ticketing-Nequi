@@ -7,7 +7,6 @@ import co.com.nequi.ticketing.api.helper.ValidationHelper;
 import co.com.nequi.ticketing.api.mapper.EventDTOMapper;
 import co.com.nequi.ticketing.api.mapper.OrderHistoryDTOMapper;
 import co.com.nequi.ticketing.api.mapper.PurchaseOrderDTOMapper;
-import co.com.nequi.ticketing.model.Event;
 import co.com.nequi.ticketing.model.TicketOrder;
 import co.com.nequi.ticketing.api.dto.responses.PurchaseOrderResponseDTO;
 import co.com.nequi.ticketing.model.enums.GeneralMessage;
@@ -21,7 +20,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.springframework.web.reactive.function.server.RouterFunctions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 

@@ -24,7 +24,6 @@ import org.mockito.quality.Strictness;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.core.async.SdkPublisher;
-import software.amazon.awssdk.core.async.SdkPublisher;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
@@ -46,6 +45,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -194,7 +194,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.createOrderTransaction(order, history, idempotency)).expectNextCount(1).verifyComplete();
 
         org.mockito.ArgumentCaptor<TransactWriteItemsRequest> captor = org.mockito.ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
-        org.mockito.Mockito.verify(asyncClient).transactWriteItems(captor.capture());
+        verify(asyncClient).transactWriteItems(captor.capture());
         List<software.amazon.awssdk.services.dynamodb.model.TransactWriteItem> seatWrites = captor.getValue().transactItems().stream()
                 .filter(item -> item.update() != null && SEATS_TABLE.equals(item.update().tableName()))
                 .toList();
@@ -411,7 +411,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
                 .expiresAt(Instant.ofEpochSecond(nowEpoch - 10)).build();
         TicketOrderEntity entity = TicketOrderEntity.builder().orderId(ORDER_ID).expiryShard(SHARD)
                 .deadlineAt(nowEpoch - 10).build();
-        Page<TicketOrderEntity> page = Page.create(List.of(entity));
+        Page<TicketOrderEntity> page = Page.<TicketOrderEntity>builder(TicketOrderEntity.class).items(List.of(entity)).build();
 
         when(ordersTable.index("gsi-orders-deadline")).thenReturn(gsiIndex);
         doReturn(PagePublisher.create(SdkPublisher.adapt(Flux.just(page)))).when(gsiIndex).query(any(QueryEnhancedRequest.class));
@@ -429,7 +429,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
                 .expiresAt(Instant.ofEpochSecond(nowEpoch + 600)).build();
         TicketOrderEntity entity = TicketOrderEntity.builder().orderId(ORDER_ID).expiryShard(SHARD)
                 .deadlineAt(nowEpoch + 600).build();
-        Page<TicketOrderEntity> page = Page.create(List.of(entity));
+        Page<TicketOrderEntity> page = Page.<TicketOrderEntity>builder(TicketOrderEntity.class).items(List.of(entity)).build();
 
         when(ordersTable.index("gsi-orders-deadline")).thenReturn(gsiIndex);
         doReturn(PagePublisher.create(SdkPublisher.adapt(Flux.just(page)))).when(gsiIndex).query(any(QueryEnhancedRequest.class));
@@ -452,7 +452,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
 
     private void assertSeatTransition(SeatStatus from, SeatStatus to) {
         org.mockito.ArgumentCaptor<TransactWriteItemsRequest> captor = org.mockito.ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
-        org.mockito.Mockito.verify(asyncClient).transactWriteItems(captor.capture());
+        verify(asyncClient).transactWriteItems(captor.capture());
         List<software.amazon.awssdk.services.dynamodb.model.TransactWriteItem> seatUpdates = captor.getValue().transactItems().stream()
                 .filter(item -> item.update() != null && SEATS_TABLE.equals(item.update().tableName()))
                 .toList();

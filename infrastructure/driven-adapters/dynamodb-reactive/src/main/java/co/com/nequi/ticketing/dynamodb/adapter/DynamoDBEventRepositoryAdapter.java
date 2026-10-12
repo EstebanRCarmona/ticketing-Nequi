@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
@@ -90,7 +91,7 @@ public class DynamoDBEventRepositoryAdapter implements EventRepository {
                 .build();
 
         return Flux.from(eventsTable.index("gsi-events-by-date").query(queryRequest))
-                .flatMapIterable(page -> page.items())
+                .flatMapIterable(Page::items)
                 .map(eventMapper::toDomain)
                 .onErrorMap(e -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));
     }

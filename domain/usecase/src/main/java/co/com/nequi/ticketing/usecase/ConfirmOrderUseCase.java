@@ -3,7 +3,6 @@ package co.com.nequi.ticketing.usecase;
 import co.com.nequi.ticketing.usecase.utils.UseCaseConstants;
 import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.TicketOrder;
-import co.com.nequi.ticketing.model.enums.TicketStatus;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.QueueService;
 import co.com.nequi.ticketing.model.gateways.TicketOrderRepository;

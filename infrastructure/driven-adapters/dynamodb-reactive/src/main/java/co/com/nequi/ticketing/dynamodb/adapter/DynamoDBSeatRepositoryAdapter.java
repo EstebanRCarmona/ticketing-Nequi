@@ -16,6 +16,7 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
@@ -79,7 +80,7 @@ public class DynamoDBSeatRepositoryAdapter implements SeatRepository {
                                         .partitionValue(eventId + "#" + SeatStatus.AVAILABLE.name() + "#S#" + shard)
                                         .build()))
                                 .build())))
-                .flatMapIterable(page -> page.items())
+                .flatMapIterable(Page::items)
                 .map(seatMapper::toDomain)
                 .sort((left, right) -> left.getSeatId().compareTo(right.getSeatId()))
                 .onErrorMap(error -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, error));

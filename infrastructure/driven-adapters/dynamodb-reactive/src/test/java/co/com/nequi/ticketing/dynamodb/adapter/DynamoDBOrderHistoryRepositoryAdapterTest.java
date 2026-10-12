@@ -47,9 +47,8 @@ class DynamoDBOrderHistoryRepositoryAdapterTest {
         adapter = new DynamoDBOrderHistoryRepositoryAdapter(enhancedAsyncClient, mapper, TABLE_NAME);
     }
 
-    @SuppressWarnings("unchecked")
-    private PagePublisher<OrderHistoryEntity> pagePublisher(Page<OrderHistoryEntity>... pages) {
-        return PagePublisher.create(SdkPublisher.adapt(Flux.just(pages)));
+    private PagePublisher<OrderHistoryEntity> pagePublisher(List<Page<OrderHistoryEntity>> pages) {
+        return PagePublisher.create(SdkPublisher.adapt(Flux.fromIterable(pages)));
     }
 
     @Test
@@ -58,7 +57,8 @@ class DynamoDBOrderHistoryRepositoryAdapterTest {
                 .orderId(ORDER_ID).sequence(1L).toStatus("RESERVED").occurredAt(Instant.now().toString()).build();
         OrderHistory history = OrderHistory.builder().orderId(ORDER_ID).sequence(1L).build();
 
-        doReturn(pagePublisher(Page.create(List.of(entity)))).when(table).query(any(QueryConditional.class));
+        doReturn(pagePublisher(List.of(Page.<OrderHistoryEntity>builder(OrderHistoryEntity.class).items(List.of(entity)).build())))
+            .when(table).query(any(QueryConditional.class));
         when(mapper.toDomain(entity)).thenReturn(history);
 
         StepVerifier.create(adapter.findByOrderId(ORDER_ID))
@@ -68,7 +68,8 @@ class DynamoDBOrderHistoryRepositoryAdapterTest {
 
     @Test
     void shouldReturnEmptyWhenNoHistory() {
-        doReturn(pagePublisher(Page.create(List.of()))).when(table).query(any(QueryConditional.class));
+        doReturn(pagePublisher(List.of(Page.<OrderHistoryEntity>builder(OrderHistoryEntity.class).items(List.of()).build())))
+            .when(table).query(any(QueryConditional.class));
 
         StepVerifier.create(adapter.findByOrderId(ORDER_ID))
                 .verifyComplete();
@@ -81,7 +82,8 @@ class DynamoDBOrderHistoryRepositoryAdapterTest {
         OrderHistory h1 = OrderHistory.builder().orderId(ORDER_ID).sequence(1L).build();
         OrderHistory h2 = OrderHistory.builder().orderId(ORDER_ID).sequence(2L).build();
 
-        doReturn(pagePublisher(Page.create(List.of(e1, e2)))).when(table).query(any(QueryConditional.class));
+        doReturn(pagePublisher(List.of(Page.<OrderHistoryEntity>builder(OrderHistoryEntity.class).items(List.of(e1, e2)).build())))
+            .when(table).query(any(QueryConditional.class));
         when(mapper.toDomain(e1)).thenReturn(h1);
         when(mapper.toDomain(e2)).thenReturn(h2);
 

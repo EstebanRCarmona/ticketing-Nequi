@@ -13,6 +13,7 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 
 @Repository
@@ -30,7 +31,7 @@ public class DynamoDBOrderHistoryRepositoryAdapter implements OrderHistoryReposi
     public Flux<OrderHistory> findByOrderId(String orderId) {
         QueryConditional queryConditional = QueryConditional.keyEqualTo(Key.builder().partitionValue(orderId).build());
         return Flux.from(table.query(queryConditional))
-                .flatMapIterable(page -> page.items())
+                .flatMapIterable(Page::items)
                 .map(mapper::toDomain)
                 .onErrorMap(e -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));
     }

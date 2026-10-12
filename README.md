@@ -2,6 +2,10 @@
 
 High-performance, high-concurrency ticketing microservice built with **Java 25**, **Spring Boot 4.x**, **Spring WebFlux**, **AWS DynamoDB** and **Amazon SQS**, following **Bancolombia Clean Architecture**.
 
+The service reserves numbered seats transactionally, processes payment confirmation asynchronously, and releases expired reservations. Local development uses LocalStack. Terraform describes AWS infrastructure, while the checked-in environment files target Floci for local validation.
+
+**Contents:** [Architecture](#architecture-overview) · [Quick start](#quick-start-with-docker) · [API](#api-reference) · [Tests](#tests-and-coverage) · [Project structure](#project-structure) · [Terraform](#infrastructure-terraform) · [Diagrams](#diagrams)
+
 ---
 
 ## 🏗️ Architecture Overview
@@ -31,7 +35,7 @@ Related diagrams: [Local development architecture](docs/arquitectura/ticketing-l
 
 [PlantUML source](docs/diagramas-secuencia/orders_flow.puml)
 
-The sequence diagram shows the main order states and transitions across reservation, confirmation, asynchronous payment, cancellation, expiration, and order history lookup.
+The sequence diagram shows the main order states and transitions across reservation, confirmation, asynchronous payment, cancellation, expiration, and order history lookup. Order creation reserves inventory synchronously; payment finalization runs asynchronously after confirmation.
 
 States `SOLD`, `COMPLIMENTARY`, `CANCELLED` and `EXPIRED` are **terminal** — no transitions out.
 
@@ -49,12 +53,13 @@ Use this document to review the architectural decisions, concurrency strategy, a
 
 ### Prerequisites
 - **Docker** and **Docker Compose**
-- **Java 25** and **Gradle** (to build the JAR locally)
+- **Java 25** (to build the JAR locally; the Gradle wrapper is included)
+
+The Gradle commands below use `./gradlew` for macOS/Linux. In Windows PowerShell, use `.\gradlew.bat` instead.
 
 ### 1. Build the JAR locally
 
-The Docker image does **not** compile the project — it only packages a pre-built JAR.
-You must generate it before running Docker:
+The Docker image does **not** compile the project; it packages a pre-built JAR. Build the application before starting Docker:
 
 ```bash
 ./gradlew bootJar -x test
@@ -77,18 +82,16 @@ chmod +x deployment/init-aws.sh
 
 ### 3. Start the full environment
 
-ios
-```bash
-docker compose down && docker compose up --build -d
-```
-windows
-```sh
-docker compose down if ($LASTEXITCODE -eq 0) { docker compose up --build -d }
+The following Docker Compose commands work in PowerShell, macOS, and Linux:
+
+```console
+docker compose down
+docker compose up --build -d
 ```
 
-The `down` ensures any previous containers are removed before starting fresh.
+`down` removes containers from a previous run. LocalStack persistence is disabled, so local DynamoDB/SQS data is not retained when the container is removed.
 
-If you are on Windows, make sure to normalize the line endings in `deployment/init-aws.sh` before running Docker so LocalStack can execute the script during initialization:
+If LocalStack does not execute its initialization script on Windows, normalize the line endings in `deployment/init-aws.sh` with PowerShell:
 
 ```powershell
 $content = [System.IO.File]::ReadAllText("$PWD\deployment\init-aws.sh")
@@ -102,23 +105,20 @@ This starts:
 - **LocalStack** — emulates DynamoDB (6 tables) and SQS (2 queues + 2 DLQs) on port `4566`
 - **App Ticketing Nequi** — reactive microservice on port `8080`
 
-Expected startup times:
-- ~16s — LocalStack boots
-- ~10s — `init-aws.sh` creates tables and queues
-- ~30s — Spring Boot app starts
+Startup time depends on the machine and Docker image cache. Wait until both services are healthy; inspect status and logs with:
 
-> Total: ~1 minute until everything is `healthy`. You can monitor with:
-> ```bash
-> docker compose ps -a
-> docker compose logs --tail=100
-> ```
+```console
+docker compose ps -a
+docker compose logs --tail=100
+```
 
 ### Rebuild after code changes
 
 ```bash
-docker compose down && ./gradlew bootJar -x test && docker compose up --build -d
+docker compose down
+./gradlew bootJar
+docker compose up --build -d
 ```
-
 ### Stop
 
 ```bash
@@ -152,6 +152,8 @@ docker compose down
 | `CB_FAILURE_RATE_THRESHOLD` | `50` | Failure % to open circuit |
 | `CB_WAIT_DURATION_OPEN` | `30s` | Time in open state |
 | `CB_SLOW_CALL_DURATION` | `10s` | Slow call threshold |
+
+The default AWS credentials and LocalStack endpoints are for local development only. Do not use the `test` credentials or these endpoint defaults to connect to AWS.
 
 ---
 
@@ -192,13 +194,15 @@ curl -X POST http://localhost:8080/api/v1/events \
 curl "http://localhost:8080/api/v1/events?limit=10"
 ```
 
-#### Get Event Detail + Real-time Availability — `GET /api/v1/events/{eventId}`
+#### Get Event Detail and Current Availability — `GET /api/v1/events/{eventId}`
 
 ```bash
 curl http://localhost:8080/api/v1/events/<EVENT_ID>
 ```
 
-The detail response includes aggregate availability and `availableSeatIds`; choose IDs from this list when creating an order.
+The detail response includes aggregate availability and `availableSeatIds`; choose IDs from this list when creating an order. The seat list comes from a DynamoDB secondary index and can be briefly stale; the reservation transaction is the final availability check.
+
+The cURL examples in this section use Bash line continuations. In Windows PowerShell, import the Postman collection or use `curl.exe` and replace each trailing `\` with a PowerShell backtick.
 
 #### Inspect Seat Status in DynamoDB LocalStack
 
@@ -235,6 +239,8 @@ curl -X POST http://localhost:8080/api/v1/orders \
 
 Returns HTTP `201` with the selected IDs and an order in `RESERVED` state. Reservations expire in **10 minutes**. Requests must contain 1 to 10 distinct seat IDs.
 
+The `Idempotency-Key` is scoped to the user and operation. Repeating the same key with the same request body returns the existing order; reusing it with a different body is rejected. Idempotency records expire after 24 hours.
+
 #### Get Order Status — `GET /api/v1/orders/{orderId}`
 
 ```bash
@@ -251,7 +257,9 @@ curl -X POST http://localhost:8080/api/v1/orders/<ORDER_ID>/confirm \
   -d '{ "paymentReference": "tok_card_visa_123" }'
 ```
 
-Returns HTTP `202`. Payment is processed asynchronously via SQS. Poll `GET /orders/{id}` to check final state (`SOLD` or `CANCELLED`).
+Returns HTTP `202` with state `PENDING_CONFIRMATION`. Confirmation starts a **5-minute** processing window, and payment is processed asynchronously via SQS. Poll `GET /api/v1/orders/{orderId}` to check the result (`SOLD`, `CANCELLED` or, if the window expires, `EXPIRED`).
+
+The current `PaymentGateway` is a mock: it approves any reference except `REJECT_PAYMENT`. Use that value to demonstrate a rejected payment, which should release the reserved seats and leave the order `CANCELLED`. This is not a real payment integration.
 
 #### Cancel Order — `POST /api/v1/orders/{orderId}/cancel`
 
@@ -261,6 +269,8 @@ curl -X POST http://localhost:8080/api/v1/orders/<ORDER_ID>/cancel \
   -H "X-User-Id: usr-client-001" \
   -d '{ "reason": "CUSTOMER_REQUEST" }'
 ```
+
+Cancellation is currently supported only while the order is `RESERVED`.
 
 #### Get Order Audit History — `GET /api/v1/orders/{orderId}/history`
 
@@ -298,16 +308,18 @@ Every response includes:
 | `Cache-Control` | `no-store` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 
+These headers are browser-facing hardening and do not authenticate callers. In this exercise, `X-User-Id` and `X-Role` are demo headers and must not be trusted as identity in a production deployment; use a validated JWT or trusted authorizer instead.
+
 ---
 
 ## 🧪 Tests and Coverage
 
-The suite has two layers, separated with the JUnit 5 tag `integration`:
+The suite separates unit tests from tests tagged `integration`:
 
 | Layer | Command | Needs Docker | What it covers |
 |---|---|---|---|
 | Unit tests | `./gradlew test` | No | Use cases, handlers, mappers, adapters with mocked AWS SDK, ArchUnit |
-| Integration tests | `./gradlew integrationTest` | **Yes** | Real DynamoDB behavior on LocalStack via **Testcontainers** (conditional writes, transactions, concurrency) |
+| Integration tests | `./gradlew integrationTest` | **Yes** | DynamoDB transaction and conditional-write behavior in LocalStack via **Testcontainers** |
 
 ### Run unit tests
 
@@ -317,7 +329,7 @@ The suite has two layers, separated with the JUnit 5 tag `integration`:
 
 ### Run integration tests (Testcontainers + LocalStack)
 
-Requirements: Docker running (Docker Desktop on Windows/macOS). Testcontainers starts and removes the LocalStack container automatically; you do **not** need `docker compose` for these tests.
+Requirements: Docker running (Docker Desktop on Windows/macOS). Testcontainers starts and removes the LocalStack container automatically; you do **not** need `docker compose` for these tests. If Docker is unavailable, these integration tests fail; they are not configured to skip automatically.
 
 ```bash
 ./gradlew integrationTest
@@ -325,18 +337,19 @@ Requirements: Docker running (Docker Desktop on Windows/macOS). Testcontainers s
 
 The first run downloads `localstack/localstack:3.4`, `testcontainers/ryuk` and `alpine`, so it can take a few minutes. Later runs take around 15-30 seconds.
 
-**Concurrency test** (`DynamoDBConcurrencyLocalStackTest`): launches N=30 concurrent reservation attempts against an event with M=10 tickets and asserts that exactly 10 succeed, the other 20 are rejected as insufficient inventory, and the final inventory is `available = 0`, `reserved = 10`. It validates the conditional writes and the atomic `TransactWriteItems` against a real DynamoDB engine, which mocks cannot prove.
+**Concurrency test** (`DynamoDBConcurrencyLocalStackTest`): launches 30 concurrent reservation attempts for 10 tickets. It asserts that exactly 10 succeed, the other 20 are rejected, and the final inventory is `available = 0`, `reserved = 10`. This exercises conditional writes and `TransactWriteItems` against LocalStack; it is not a test against AWS itself or a load test of the running HTTP service.
 
-> If Docker is not available, the integration tests are skipped when the class uses `@Testcontainers(disabledWithoutDocker = true)`. Otherwise they fail with `Could not find a valid Docker environment`.
-
-### Coverage report (minimum 90 %)
+### Coverage report and verification
 
 ```bash
 ./gradlew test jacocoMergedReport --no-configuration-cache
+./gradlew integrationTest
+./gradlew jacocoMergedVerification --no-configuration-cache
 ```
 
-- `jacocoMergedReport` merges the execution data of unit and integration tests.
-- `jacocoMergedVerification` **fails the build** if coverage is below 90 %.
+- Run `integrationTest` first so its execution data is available to the merged report.
+- `jacocoMergedVerification` runs the unit tests/report tasks and **fails the build** if the configured coverage threshold is below 90 %.
+- The coverage threshold excludes the data/configuration packages listed below; report the result only after this verification task passes.
 - `--no-configuration-cache` is required due to a known incompatibility between the pitest plugin and Gradle 9's configuration cache.
 
 Report available at `build/reports/jacocoHtml/index.html`:
@@ -407,19 +420,13 @@ Integration tests (`@Tag("integration")`) are excluded from mutation testing bec
 
 ## 🗂️ Postman Collection
 
-A ready-to-use Postman collection is available at the root of the project:
-
-```
-postman_collection.json
-```
-
-Import it directly into Postman. It includes all endpoints pre-configured with example request bodies and headers (`X-Role`, `X-User-Id`, `Idempotency-Key`, etc.).
+A ready-to-use [Postman collection](postman_collection.json) is available at the repository root. Import it into Postman to access the configured endpoints, example request bodies, and headers (`X-Role`, `X-User-Id`, `Idempotency-Key`, etc.).
 
 ---
 
 ## 🏛️ Infrastructure (Terraform)
 
-The `terraform/` folder contains the AWS infrastructure definition organized in three independent modules, deployed in order:
+The `terraform/` folder contains the AWS infrastructure definition organized in three independent modules. Apply them in the order shown in the Terraform guide:
 
 | Module | Resources |
 |---|---|
@@ -427,7 +434,7 @@ The `terraform/` folder contains the AWS infrastructure definition organized in 
 | `terraform/sqs/` | 2 SQS queues + 2 DLQs with redrive policy |
 | `terraform/api/` | ECR, ECS Fargate, ALB + NLB, API Gateway REST, WAFv2, IAM roles, CloudWatch, Auto Scaling |
 
-Each module has environment-specific files under `env/dev/`, `env/qa/` and `env/pdn/`. The checked-in tfvars target Floci with a fake account and must not be used to deploy to AWS.
+Each module has environment-specific files under `env/dev/`, `env/qa/` and `env/pdn/`. All checked-in tfvars target Floci and use a fake account ID; they are for local validation only and must not be used to deploy to AWS.
 
 See [`terraform/README.md`](terraform/README.md) for deployment instructions.
 
@@ -439,7 +446,7 @@ With Docker Desktop running, start the AWS emulator and follow the three-module 
 docker compose -f docker-compose.floci.yml up -d
 ```
 
-Floci runs ECS in mock mode, so this validates resource configuration without starting the Java service. Its WAF API stores the Web ACL and association but does not filter live traffic; test real rate limiting in AWS.
+Floci runs ECS in mock mode, so this validates resource configuration without starting the Java service. Its WAF API stores the Web ACL and association but does not filter live traffic. Validate rate limiting, networking, and permissions in AWS before treating them as production-ready.
 
 ---
 

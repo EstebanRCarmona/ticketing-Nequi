@@ -60,7 +60,8 @@ class DynamoDBConcurrencyLocalStackTest {
     private static final String TABLE_IDEMPOTENCY = "ticketing-idempotency";
     private static final String TABLE_SEATS = "ticketing-seats";
 
-    @Container
+        @SuppressWarnings("resource")
+        @Container
     static LocalStackContainer localStack = new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.4"))
             .withServices(DYNAMODB);
 

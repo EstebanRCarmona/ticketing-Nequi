@@ -26,6 +26,7 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.Page;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryConditional;
 import software.amazon.awssdk.enhanced.dynamodb.model.QueryEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
@@ -421,7 +422,7 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
                 .build();
 
         return Flux.from(ordersTable.index("gsi-orders-deadline").query(queryRequest))
-                .flatMapIterable(page -> page.items())
+                .flatMapIterable(Page::items)
                 .map(orderMapper::toDomain)
                 .filter(o -> o.getExpiresAt() != null && o.getExpiresAt().getEpochSecond() <= nowEpoch)
                 .onErrorMap(e -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));

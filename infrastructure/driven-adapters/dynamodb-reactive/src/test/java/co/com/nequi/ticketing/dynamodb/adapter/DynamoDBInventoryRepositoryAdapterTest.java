@@ -7,6 +7,7 @@ import co.com.nequi.ticketing.model.exception.TechnicalException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -15,11 +16,11 @@ import reactor.test.StepVerifier;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,7 +48,7 @@ class DynamoDBInventoryRepositoryAdapterTest {
                 .eventId(EVENT_ID).available(100).reserved(5).totalCapacity(200).build();
         Inventory inventory = Inventory.builder().eventId(EVENT_ID).available(100).build();
 
-        when(table.getItem(any(Consumer.class)))
+        when(table.getItem(ArgumentMatchers.<Consumer<GetItemEnhancedRequest.Builder>>any()))
                 .thenReturn(CompletableFuture.completedFuture(entity));
         when(mapper.toDomain(entity)).thenReturn(inventory);
 
@@ -58,7 +59,7 @@ class DynamoDBInventoryRepositoryAdapterTest {
 
     @Test
     void shouldReturnEmptyWhenNotFound() {
-        when(table.getItem(any(Consumer.class)))
+        when(table.getItem(ArgumentMatchers.<Consumer<GetItemEnhancedRequest.Builder>>any()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         StepVerifier.create(adapter.findByEventIdConsistent(EVENT_ID))
@@ -67,7 +68,7 @@ class DynamoDBInventoryRepositoryAdapterTest {
 
     @Test
     void shouldWrapDynamoExceptionAsTechnicalException() {
-        when(table.getItem(any(Consumer.class)))
+        when(table.getItem(ArgumentMatchers.<Consumer<GetItemEnhancedRequest.Builder>>any()))
                 .thenReturn(CompletableFuture.failedFuture(new RuntimeException("DynamoDB error")));
 
         StepVerifier.create(adapter.findByEventIdConsistent(EVENT_ID))

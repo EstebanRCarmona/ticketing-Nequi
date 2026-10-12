@@ -16,7 +16,6 @@ import software.amazon.awssdk.core.async.SdkPublisher;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
-import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
 import software.amazon.awssdk.enhanced.dynamodb.model.GetItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.Page;
@@ -34,9 +33,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -119,7 +116,7 @@ class DynamoDBSeatRepositoryAdapterTest {
         SeatEntity entity = SeatEntity.builder().seatKey(TEST_SEAT_KEY).eventId(EVENT_ID)
                 .seatId("S-00001").status("AVAILABLE").build();
         Seat seat = Seat.builder().eventId(EVENT_ID).seatId("S-00001").status(SeatStatus.AVAILABLE).build();
-        Page<SeatEntity> page = Page.create(List.of(entity));
+        Page<SeatEntity> page = Page.<SeatEntity>builder(SeatEntity.class).items(List.of(entity)).build();
         when(seatsTable.index("gsi-seats-by-status")).thenReturn(seatsIndex);
         doReturn(PagePublisher.create(SdkPublisher.adapt(Flux.just(page))))
                 .when(seatsIndex).query(any(QueryEnhancedRequest.class));

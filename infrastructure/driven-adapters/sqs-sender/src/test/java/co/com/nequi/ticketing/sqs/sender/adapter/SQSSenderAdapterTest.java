@@ -17,7 +17,6 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -140,7 +139,7 @@ class SQSSenderAdapterTest {
         StepVerifier.create(adapter.sendExpireOrderMessage(ORDER_ID, DEADLINE_AT, -100L))
                 .verifyComplete();
 
-        assertThat(captor.getValue().delaySeconds()).isEqualTo(0);
+        assertThat(captor.getValue().delaySeconds()).isZero();
     }
 
     @Test

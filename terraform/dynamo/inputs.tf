@@ -13,6 +13,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "floci_endpoint" {
+  description = "Floci endpoint; null means deploy against AWS using the normal credential chain"
+  type        = string
+  default     = null
+}
+
 variable "billing_mode" {
   description = "Modo de facturación de DynamoDB: PAY_PER_REQUEST o PROVISIONED"
   type        = string

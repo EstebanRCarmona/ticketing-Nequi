@@ -8,7 +8,21 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region     = var.aws_region
+  access_key = var.floci_endpoint == null ? null : "test"
+  secret_key = var.floci_endpoint == null ? null : "test"
+
+  skip_credentials_validation = var.floci_endpoint != null
+  skip_metadata_api_check     = var.floci_endpoint != null
+  skip_requesting_account_id  = var.floci_endpoint != null
+  skip_region_validation      = var.floci_endpoint != null
+
+  dynamic "endpoints" {
+    for_each = var.floci_endpoint == null ? [] : [var.floci_endpoint]
+    content {
+      sqs = endpoints.value
+    }
+  }
 }
 
 # ── DLQ: ORDER PROCESSING ────────────────────────────────────────────────────

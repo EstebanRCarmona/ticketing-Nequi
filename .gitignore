@@ -67,7 +67,6 @@ application-local.properties
 *.tfstate.*
 crash.log
 crash.*.log
-*.tfvars
 *.tfvars.json
 !*.tfvars.example
 override.tf
@@ -76,8 +75,7 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
-# Mantén versionado el lock file:
-# .terraform.lock.hcl  (NO lo ignores)
+.terraform.lock.hcl
 
 # ---------- Docker / LocalStack ----------
 .localstack/

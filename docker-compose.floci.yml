@@ -1,0 +1,16 @@
+services:
+  floci:
+    image: floci/floci:2.2.0
+    container_name: floci_ticketing_terraform
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_STORAGE_MODE: hybrid
+      FLOCI_SERVICES_ECS_MOCK: "true"
+    volumes:
+      - floci-data:/app/data
+      - //var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  floci-data:

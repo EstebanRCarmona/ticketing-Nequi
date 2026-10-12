@@ -1,5 +1,4 @@
-data "aws_caller_identity" "current" {}
-
 data "aws_vpc" "selected" {
-  id = var.vpc_id
+  count = var.create_vpc ? 0 : 1
+  id    = var.vpc_id
 }

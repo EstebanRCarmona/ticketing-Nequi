@@ -18,20 +18,57 @@ variable "aws_account_id" {
   type        = string
 }
 
+variable "floci_endpoint" {
+  description = "Floci endpoint; null means deploy against AWS using the normal credential chain"
+  type        = string
+  default     = null
+}
+
+variable "waf_rate_limit" {
+  description = "Maximum requests per source IP in the WAF evaluation window"
+  type        = number
+  default     = 1000
+  validation {
+    condition     = var.waf_rate_limit >= 100 && var.waf_rate_limit <= 2000000000
+    error_message = "waf_rate_limit must be between 100 and 2,000,000,000 requests."
+  }
+}
+
 # ── VPC / RED ────────────────────────────────────────────────────────────────
 variable "vpc_id" {
   description = "ID del VPC donde se desplegará el servicio"
   type        = string
+  default     = null
 }
 
 variable "private_subnet_ids" {
   description = "IDs de subnets privadas para ECS tasks"
   type        = list(string)
+  default     = []
 }
 
 variable "public_subnet_ids" {
   description = "IDs de subnets públicas para el ALB"
   type        = list(string)
+  default     = []
+}
+
+variable "create_vpc" {
+  description = "Create a small local VPC and private subnets for Floci; leave false for an existing AWS VPC"
+  type        = bool
+  default     = false
+}
+
+variable "local_vpc_cidr" {
+  description = "CIDR used only when create_vpc is true"
+  type        = string
+  default     = "10.40.0.0/16"
+}
+
+variable "local_private_subnet_cidrs" {
+  description = "Private subnet CIDRs used only when create_vpc is true"
+  type        = list(string)
+  default     = ["10.40.1.0/24", "10.40.2.0/24"]
 }
 
 # ── ECR ──────────────────────────────────────────────────────────────────────
@@ -119,6 +156,11 @@ variable "table_inventory_name" {
   type        = string
 }
 
+variable "table_seats_name" {
+  description = "Nombre de la tabla DynamoDB seats"
+  type        = string
+}
+
 variable "table_orders_name" {
   description = "Nombre de la tabla DynamoDB orders"
   type        = string
@@ -141,6 +183,11 @@ variable "table_orders_arn" {
 
 variable "table_inventory_arn" {
   description = "ARN de la tabla DynamoDB inventory"
+  type        = string
+}
+
+variable "table_seats_arn" {
+  description = "ARN de la tabla DynamoDB seats"
   type        = string
 }
 

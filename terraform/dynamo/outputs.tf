@@ -6,6 +6,10 @@ output "inventory_table_name" {
   value = aws_dynamodb_table.inventory.name
 }
 
+output "seats_table_name" {
+  value = aws_dynamodb_table.seats.name
+}
+
 output "orders_table_name" {
   value = aws_dynamodb_table.orders.name
 }
@@ -24,6 +28,10 @@ output "orders_table_arn" {
 
 output "inventory_table_arn" {
   value = aws_dynamodb_table.inventory.arn
+}
+
+output "seats_table_arn" {
+  value = aws_dynamodb_table.seats.arn
 }
 
 output "order_history_table_arn" {

@@ -8,7 +8,51 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region     = var.aws_region
+  access_key = var.floci_endpoint == null ? null : "test"
+  secret_key = var.floci_endpoint == null ? null : "test"
+
+  skip_credentials_validation = var.floci_endpoint != null
+  skip_metadata_api_check     = var.floci_endpoint != null
+  skip_requesting_account_id  = var.floci_endpoint != null
+  skip_region_validation      = var.floci_endpoint != null
+
+  dynamic "endpoints" {
+    for_each = var.floci_endpoint == null ? [] : [var.floci_endpoint]
+    content {
+      apigateway             = endpoints.value
+      applicationautoscaling = endpoints.value
+      autoscaling            = endpoints.value
+      cloudwatch             = endpoints.value
+      ec2                    = endpoints.value
+      ecr                    = endpoints.value
+      ecs                    = endpoints.value
+      elbv2                  = endpoints.value
+      iam                    = endpoints.value
+      logs                   = endpoints.value
+      sts                    = endpoints.value
+      wafv2                  = endpoints.value
+    }
+  }
+}
+
+resource "aws_vpc" "local" {
+  count                = var.create_vpc ? 1 : 0
+  cidr_block           = var.local_vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = merge(local.common_tags, { Name = "${local.prefix}-vpc" })
+}
+
+resource "aws_subnet" "local_private" {
+  count                   = var.create_vpc ? length(var.local_private_subnet_cidrs) : 0
+  vpc_id                  = aws_vpc.local[0].id
+  cidr_block              = var.local_private_subnet_cidrs[count.index]
+  availability_zone       = "${var.aws_region}${element(["a", "b", "c"], count.index)}"
+  map_public_ip_on_launch = false
+
+  tags = merge(local.common_tags, { Name = "${local.prefix}-private-${count.index + 1}" })
 }
 
 # ── ECR ───────────────────────────────────────────────────────────────────────
@@ -94,14 +138,14 @@ resource "aws_cloudwatch_log_group" "app" {
 resource "aws_security_group" "alb" {
   name        = "${local.prefix}-alb-sg"
   description = "Security group para el ALB interno"
-  vpc_id      = var.vpc_id
+  vpc_id      = local.vpc_id
 
   ingress {
     description = "Allow HTTP traffic from VPC (API Gateway VPC Link)"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+    cidr_blocks = [local.vpc_cidr]
   }
 
   ingress {
@@ -109,7 +153,7 @@ resource "aws_security_group" "alb" {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.selected.cidr_block]
+    cidr_blocks = [local.vpc_cidr]
   }
 
   egress {
@@ -125,7 +169,7 @@ resource "aws_security_group" "alb" {
 resource "aws_security_group" "ecs" {
   name        = "${local.prefix}-ecs-sg"
   description = "Security group para las tasks ECS"
-  vpc_id      = var.vpc_id
+  vpc_id      = local.vpc_id
 
   ingress {
     from_port       = var.container_port
@@ -150,7 +194,7 @@ resource "aws_lb" "app" {
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = var.private_subnet_ids
+  subnets            = local.private_subnet_ids
 
   tags = local.common_tags
 }
@@ -159,7 +203,7 @@ resource "aws_lb_target_group" "app" {
   name        = "${local.prefix}-tg"
   port        = var.container_port
   protocol    = "HTTP"
-  vpc_id      = var.vpc_id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   health_check {
@@ -183,6 +227,56 @@ resource "aws_lb_listener" "http" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# API Gateway REST VPC Links target NLBs. The NLB forwards to the application ALB.
+resource "aws_lb" "api_gateway" {
+  name               = "${local.prefix}-api-nlb"
+  internal           = true
+  load_balancer_type = "network"
+  subnets            = local.private_subnet_ids
+
+  tags = local.common_tags
+}
+
+resource "aws_lb_target_group" "api_gateway" {
+  name        = "${local.prefix}-api-nlb-tg"
+  port        = 80
+  protocol    = "TCP"
+  vpc_id      = local.vpc_id
+  target_type = var.floci_endpoint == null ? "alb" : "instance"
+
+  health_check {
+    protocol            = "HTTP"
+    path                = var.health_check_path
+    port                = "traffic-port"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  tags = local.common_tags
+}
+
+# Floci does not emulate ALB targets, so validate the control plane without this attachment locally.
+resource "aws_lb_target_group_attachment" "api_gateway" {
+  count            = var.floci_endpoint == null ? 1 : 0
+  target_group_arn = aws_lb_target_group.api_gateway.arn
+  target_id        = aws_lb.app.arn
+  port             = 80
+}
+
+resource "aws_lb_listener" "api_gateway" {
+  load_balancer_arn = aws_lb.api_gateway.arn
+  port              = 80
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api_gateway.arn
   }
 }
 
@@ -250,7 +344,7 @@ resource "aws_ecs_service" "app" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = local.private_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = false
   }
@@ -383,7 +477,7 @@ resource "aws_api_gateway_rest_api" "app" {
 # VPC Link para conectar API GW con el ALB interno
 resource "aws_api_gateway_vpc_link" "app" {
   name        = "${local.prefix}-vpc-link"
-  target_arns = [aws_lb.app.arn]
+  target_arns = [aws_lb.api_gateway.arn]
   tags        = local.common_tags
 }
 
@@ -458,19 +552,19 @@ resource "aws_api_gateway_resource" "history" {
 }
 
 locals {
-  alb_base_uri = "http://${aws_lb.app.dns_name}"
+  api_base_uri = "http://${aws_lb.api_gateway.dns_name}"
 
   # Mapa de todos los métodos: resource_id -> [http_method, integration_uri]
   api_methods = {
-    post_events        = { resource = aws_api_gateway_resource.events,        method = "POST", uri = "${local.alb_base_uri}/api/v1/events" }
-    get_events         = { resource = aws_api_gateway_resource.events,        method = "GET",  uri = "${local.alb_base_uri}/api/v1/events" }
-    get_event_by_id    = { resource = aws_api_gateway_resource.event_id,      method = "GET",  uri = "${local.alb_base_uri}/api/v1/events/{eventId}" }
-    post_complimentary = { resource = aws_api_gateway_resource.complimentary, method = "POST", uri = "${local.alb_base_uri}/api/v1/events/{eventId}/complimentary" }
-    post_orders        = { resource = aws_api_gateway_resource.orders,        method = "POST", uri = "${local.alb_base_uri}/api/v1/orders" }
-    get_order_by_id    = { resource = aws_api_gateway_resource.order_id,      method = "GET",  uri = "${local.alb_base_uri}/api/v1/orders/{orderId}" }
-    post_confirm       = { resource = aws_api_gateway_resource.confirm,       method = "POST", uri = "${local.alb_base_uri}/api/v1/orders/{orderId}/confirm" }
-    post_cancel        = { resource = aws_api_gateway_resource.cancel,        method = "POST", uri = "${local.alb_base_uri}/api/v1/orders/{orderId}/cancel" }
-    get_history        = { resource = aws_api_gateway_resource.history,       method = "GET",  uri = "${local.alb_base_uri}/api/v1/orders/{orderId}/history" }
+    post_events        = { resource = aws_api_gateway_resource.events, method = "POST", uri = "${local.api_base_uri}/api/v1/events" }
+    get_events         = { resource = aws_api_gateway_resource.events, method = "GET", uri = "${local.api_base_uri}/api/v1/events" }
+    get_event_by_id    = { resource = aws_api_gateway_resource.event_id, method = "GET", uri = "${local.api_base_uri}/api/v1/events/{eventId}" }
+    post_complimentary = { resource = aws_api_gateway_resource.complimentary, method = "POST", uri = "${local.api_base_uri}/api/v1/events/{eventId}/complimentary" }
+    post_orders        = { resource = aws_api_gateway_resource.orders, method = "POST", uri = "${local.api_base_uri}/api/v1/orders" }
+    get_order_by_id    = { resource = aws_api_gateway_resource.order_id, method = "GET", uri = "${local.api_base_uri}/api/v1/orders/{orderId}" }
+    post_confirm       = { resource = aws_api_gateway_resource.confirm, method = "POST", uri = "${local.api_base_uri}/api/v1/orders/{orderId}/confirm" }
+    post_cancel        = { resource = aws_api_gateway_resource.cancel, method = "POST", uri = "${local.api_base_uri}/api/v1/orders/{orderId}/cancel" }
+    get_history        = { resource = aws_api_gateway_resource.history, method = "GET", uri = "${local.api_base_uri}/api/v1/orders/{orderId}/history" }
   }
 }
 
@@ -512,4 +606,50 @@ resource "aws_api_gateway_stage" "app" {
   stage_name    = var.env
 
   tags = local.common_tags
+}
+
+resource "aws_wafv2_web_acl" "api" {
+  name        = "${local.prefix}-api-rate-limit"
+  description = "Rate limits requests to the ticketing API by client IP."
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "RateLimitPerIp"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit                 = var.waf_rate_limit
+        aggregate_key_type    = "IP"
+        evaluation_window_sec = 300
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${local.prefix}-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "${local.prefix}-api-waf"
+    sampled_requests_enabled   = true
+  }
+
+  tags = local.common_tags
+}
+
+resource "aws_wafv2_web_acl_association" "api" {
+  resource_arn = aws_api_gateway_stage.app.arn
+  web_acl_arn  = aws_wafv2_web_acl.api.arn
 }

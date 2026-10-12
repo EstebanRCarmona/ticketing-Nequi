@@ -8,7 +8,21 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region     = var.aws_region
+  access_key = var.floci_endpoint == null ? null : "test"
+  secret_key = var.floci_endpoint == null ? null : "test"
+
+  skip_credentials_validation = var.floci_endpoint != null
+  skip_metadata_api_check     = var.floci_endpoint != null
+  skip_requesting_account_id  = var.floci_endpoint != null
+  skip_region_validation      = var.floci_endpoint != null
+
+  dynamic "endpoints" {
+    for_each = var.floci_endpoint == null ? [] : [var.floci_endpoint]
+    content {
+      dynamodb = endpoints.value
+    }
+  }
 }
 
 # ── EVENTS ──────────────────────────────────────────────────────────────────
@@ -28,14 +42,14 @@ resource "aws_dynamodb_table" "events" {
   }
 
   attribute {
-    name = "createdAt"
+    name = "eventDate"
     type = "S"
   }
 
   global_secondary_index {
-    name            = "gsi-events-listing"
+    name            = "gsi-events-by-date"
     hash_key        = "listingKey"
-    range_key       = "createdAt"
+    range_key       = "eventDate"
     projection_type = "ALL"
   }
 
@@ -51,6 +65,38 @@ resource "aws_dynamodb_table" "inventory" {
   attribute {
     name = "eventId"
     type = "S"
+  }
+
+  tags = local.common_tags
+}
+
+# ── INDIVIDUAL SEATS ─────────────────────────────────────────────────────────
+resource "aws_dynamodb_table" "seats" {
+  name         = "${local.prefix}-seats"
+  billing_mode = var.billing_mode
+  hash_key     = "seatKey"
+  range_key    = "seatId"
+
+  attribute {
+    name = "seatKey"
+    type = "S"
+  }
+
+  attribute {
+    name = "seatId"
+    type = "S"
+  }
+
+  attribute {
+    name = "statusKey"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "gsi-seats-by-status"
+    hash_key        = "statusKey"
+    range_key       = "seatId"
+    projection_type = "ALL"
   }
 
   tags = local.common_tags

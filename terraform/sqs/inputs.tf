@@ -13,6 +13,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "floci_endpoint" {
+  description = "Floci endpoint; null means deploy against AWS using the normal credential chain"
+  type        = string
+  default     = null
+}
+
 variable "message_retention_seconds" {
   description = "Tiempo de retención de mensajes en segundos"
   type        = number

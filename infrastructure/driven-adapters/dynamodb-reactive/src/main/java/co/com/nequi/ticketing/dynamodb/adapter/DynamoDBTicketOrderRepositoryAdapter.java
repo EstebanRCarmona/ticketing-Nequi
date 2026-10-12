@@ -6,11 +6,13 @@ import co.com.nequi.ticketing.dynamodb.entity.TicketOrderEntity;
 import co.com.nequi.ticketing.dynamodb.mapper.IdempotencyEntityMapper;
 import co.com.nequi.ticketing.dynamodb.mapper.OrderHistoryEntityMapper;
 import co.com.nequi.ticketing.dynamodb.mapper.TicketOrderEntityMapper;
+import co.com.nequi.ticketing.dynamodb.mapper.SeatEntityMapper;
 import co.com.nequi.ticketing.model.enums.ActorType;
 import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.IdempotencyRecord;
 import co.com.nequi.ticketing.model.OrderHistory;
 import co.com.nequi.ticketing.model.enums.ReleaseReason;
+import co.com.nequi.ticketing.model.enums.SeatStatus;
 import co.com.nequi.ticketing.model.TicketOrder;
 import co.com.nequi.ticketing.model.enums.TicketStatus;
 import co.com.nequi.ticketing.model.exception.BusinessException;
@@ -35,12 +37,16 @@ import software.amazon.awssdk.services.dynamodb.model.Update;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 @Repository
 public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderRepository {
 
+    private static final String ATTRIBUTE_EVENT_ID = "eventId";
     private static final long CONFIRM_TIMEOUT_SECONDS = 300L;
     private static final String REASON_PAYMENT_INITIATED = "PAYMENT_INITIATED";
     private static final String REASON_PAYMENT_APPROVED = "PAYMENT_APPROVED";
@@ -56,6 +62,7 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
 
     private final String ordersTableName;
     private final String inventoryTableName;
+    private final String seatsTableName;
 
     private final DynamoDbAsyncClient asyncClient;
     private final DynamoDbAsyncTable<TicketOrderEntity> ordersTable;
@@ -73,7 +80,8 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
                                                 @Value("${aws.dynamodb.table-orders:ticketing-orders}") String ordersTableName,
                                                 @Value("${aws.dynamodb.table-inventory:ticketing-inventory}") String inventoryTableName,
                                                 @Value("${aws.dynamodb.table-order-history:ticketing-order-history}") String historyTableName,
-                                                @Value("${aws.dynamodb.table-idempotency:ticketing-idempotency}") String idempotencyTableName) {
+                                                @Value("${aws.dynamodb.table-idempotency:ticketing-idempotency}") String idempotencyTableName,
+                                                @Value("${aws.dynamodb.table-seats:ticketing-seats}") String seatsTableName) {
         this.asyncClient = asyncClient;
         this.ordersTable = enhancedAsyncClient.table(ordersTableName, TableSchema.fromBean(TicketOrderEntity.class));
         this.idempotencyTable = enhancedAsyncClient.table(idempotencyTableName, TableSchema.fromBean(IdempotencyEntity.class));
@@ -83,88 +91,89 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
         this.idempotencyMapper = idempotencyMapper;
         this.ordersTableName = ordersTableName;
         this.inventoryTableName = inventoryTableName;
+        this.seatsTableName = seatsTableName;
     }
 
     @Override
     public Mono<TicketOrder> createOrderTransaction(TicketOrder order, OrderHistory history, IdempotencyRecord idempotency) {
-        Map<String, AttributeValue> inventoryKey = Map.of("eventId", AttributeValue.builder().s(order.getEventId()).build());
-        Map<String, AttributeValue> inventoryValues = Map.of(
-                ":q", AttributeValue.builder().n(order.getQuantity().toString()).build(),
-                ":now", AttributeValue.builder().s(Instant.now().toString()).build()
-        );
-
         return buildCreateTransaction(
-                idempotencyMapper.toEntity(idempotency),
-                orderMapper.toEntity(order),
-                historyMapper.toEntity(history),
-                inventoryKey, inventoryValues,
+                order, history, idempotency,
                 INVENTORY_EXPR_RESERVE,
-                order
+                SeatStatus.RESERVED
         );
     }
 
     @Override
     public Mono<TicketOrder> createComplimentaryTransaction(TicketOrder order, OrderHistory history, IdempotencyRecord idempotency) {
-        Map<String, AttributeValue> inventoryKey = Map.of("eventId", AttributeValue.builder().s(order.getEventId()).build());
-        Map<String, AttributeValue> inventoryValues = Map.of(
-                ":q", AttributeValue.builder().n(order.getQuantity().toString()).build(),
-                ":now", AttributeValue.builder().s(Instant.now().toString()).build()
-        );
-
         return buildCreateTransaction(
-                idempotencyMapper.toEntity(idempotency),
-                orderMapper.toEntity(order),
-                historyMapper.toEntity(history),
-                inventoryKey, inventoryValues,
+                order, history, idempotency,
                 INVENTORY_EXPR_COMPLIMENTARY,
-                order
+                SeatStatus.COMPLIMENTARY
         );
     }
 
-    private Mono<TicketOrder> buildCreateTransaction(IdempotencyEntity idempotencyEntity,
-                                                     TicketOrderEntity orderEntity,
-                                                     OrderHistoryEntity historyEntity,
-                                                     Map<String, AttributeValue> inventoryKey,
-                                                     Map<String, AttributeValue> inventoryValues,
+    private Mono<TicketOrder> buildCreateTransaction(TicketOrder order, OrderHistory history,
+                                                     IdempotencyRecord idempotency,
                                                      String inventoryExpr,
-                                                     TicketOrder order) {
+                                                     SeatStatus seatStatus) {
+                if (!hasValidSeatIds(order)) {
+                        return Mono.error(new BusinessException(GeneralMessage.VAL_INVALID_SEAT_SELECTION));
+                }
+        IdempotencyEntity idempotencyEntity = idempotencyMapper.toEntity(idempotency);
+        TicketOrderEntity orderEntity = orderMapper.toEntity(order);
+        OrderHistoryEntity historyEntity = historyMapper.toEntity(history);
         TableSchema<IdempotencyEntity> idempotencySchema = TableSchema.fromBean(IdempotencyEntity.class);
         TableSchema<TicketOrderEntity> orderSchema = TableSchema.fromBean(TicketOrderEntity.class);
         TableSchema<OrderHistoryEntity> historySchema = TableSchema.fromBean(OrderHistoryEntity.class);
+        Map<String, AttributeValue> inventoryKey = Map.of(ATTRIBUTE_EVENT_ID, AttributeValue.builder().s(order.getEventId()).build());
+        Map<String, AttributeValue> inventoryValues = Map.of(
+                ":q", AttributeValue.builder().n(order.getQuantity().toString()).build(),
+                ":now", AttributeValue.builder().s(Instant.now().toString()).build());
 
-        TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
-                .transactItems(
-                        TransactWriteItem.builder().put(p -> p
+        List<TransactWriteItem> transactionItems = new ArrayList<>();
+        transactionItems.add(TransactWriteItem.builder().put(p -> p
                                 .tableName(idempotencyTable.tableName())
                                 .item(idempotencySchema.itemToMap(idempotencyEntity, true))
                                 .conditionExpression("attribute_not_exists(idempotencyKey)")
-                        ).build(),
-                        TransactWriteItem.builder().update(Update.builder()
+                        ).build());
+        transactionItems.add(TransactWriteItem.builder().update(Update.builder()
                                 .tableName(inventoryTableName)
                                 .key(inventoryKey)
                                 .updateExpression(inventoryExpr)
                                 .expressionAttributeValues(inventoryValues)
                                 .conditionExpression("available >= :q")
-                                .build()).build(),
-                        TransactWriteItem.builder().put(p -> p
+                                .build()).build());
+        transactionItems.add(TransactWriteItem.builder().put(p -> p
                                 .tableName(ordersTable.tableName())
                                 .item(orderSchema.itemToMap(orderEntity, true))
                                 .conditionExpression("attribute_not_exists(orderId)")
-                        ).build(),
-                        TransactWriteItem.builder().put(p -> p
-                                .tableName(historyTable.tableName())
-                                .item(historySchema.itemToMap(historyEntity, true))
-                                .conditionExpression("attribute_not_exists(orderId) AND attribute_not_exists(#seq)")
-                                .expressionAttributeNames(Map.of("#seq", "sequence"))
-                        ).build()
-                )
+                        ).build());
+        for (String seatId : Optional.ofNullable(order.getSeatIds()).orElse(List.of())) {
+            transactionItems.add(buildSeatUpdateItem(order.getEventId(), seatId, SeatStatus.AVAILABLE,
+                    seatStatus, order.getId(), Instant.now()));
+        }
+        transactionItems.add(TransactWriteItem.builder().put(p -> p
+                .tableName(historyTable.tableName())
+                .item(historySchema.itemToMap(historyEntity, true))
+                .conditionExpression("attribute_not_exists(orderId) AND attribute_not_exists(#seq)")
+                .expressionAttributeNames(Map.of("#seq", "sequence"))
+        ).build());
+
+        TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
+                .transactItems(transactionItems)
                 .build();
 
         return Mono.fromFuture(() -> asyncClient.transactWriteItems(request))
                 .thenReturn(order)
-                .onErrorResume(TransactionCanceledException.class, e -> isInventoryConditionalFailed(e)
-                        ? Mono.error(new BusinessException(GeneralMessage.BUS_INSUFFICIENT_INVENTORY))
-                        : Mono.error(new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e)))
+                .onErrorResume(TransactionCanceledException.class, e -> {
+                    if (isInventoryConditionalFailed(e)) {
+                        return Mono.error(new BusinessException(GeneralMessage.BUS_INSUFFICIENT_INVENTORY));
+                    }
+                    if (isSeatConditionalFailed(e, order.getSeatIds() == null ? 0 : order.getSeatIds().size())) {
+                        return Mono.error(new BusinessException(GeneralMessage.BUS_SEAT_UNAVAILABLE));
+                    }
+                    return Mono.error(new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));
+                })
                 .onErrorMap(e -> !(e instanceof BusinessException), e -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));
     }
 
@@ -172,6 +181,14 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
         return e.cancellationReasons() != null && e.cancellationReasons().size() > 1
                 && "ConditionalCheckFailed".equals(e.cancellationReasons().get(1).code() != null ? e.cancellationReasons().get(1).code() : "");
     }
+
+    private boolean isSeatConditionalFailed(TransactionCanceledException error, int seatCount) {
+        if (error.cancellationReasons() == null || seatCount == 0) {
+            return false;
+        }
+        return error.cancellationReasons().stream().skip(3).limit(seatCount)
+                .anyMatch(reason -> "ConditionalCheckFailed".equals(reason.code()));
+        }
 
     @Override
     public Mono<TicketOrder> findById(String id) {
@@ -265,6 +282,9 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
     }
 
     private Mono<TicketOrder> transactionalUpdateOrder(TicketOrder before, TicketOrder updated, String reasonCode, String traceId, ActorType actor) {
+                if (!hasValidSeatIds(before)) {
+                        return Mono.error(new BusinessException(GeneralMessage.BUS_INVALID_STATE_TRANSITION));
+                }
         TicketOrderEntity entity = orderMapper.toEntity(updated);
         long expectedVersion = before.getVersion();
 
@@ -283,39 +303,90 @@ public class DynamoDBTicketOrderRepositoryAdapter implements TicketOrderReposito
         TableSchema<OrderHistoryEntity> historySchema = TableSchema.fromBean(OrderHistoryEntity.class);
         OrderHistoryEntity historyEntity = historyMapper.toTransitionEntity(before, updated, reasonCode, traceId, actor);
 
-        Map<String, AttributeValue> inventoryKey = Map.of("eventId", AttributeValue.builder().s(before.getEventId()).build());
+        Map<String, AttributeValue> inventoryKey = Map.of(ATTRIBUTE_EVENT_ID, AttributeValue.builder().s(before.getEventId()).build());
         Map<String, AttributeValue> inventoryValues = Map.of(
                 ":q", AttributeValue.builder().n(before.getQuantity().toString()).build(),
                 ":now", AttributeValue.builder().s(entity.getUpdatedAt()).build()
         );
 
-        TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
-                .transactItems(
-                        TransactWriteItem.builder().update(Update.builder()
+        List<TransactWriteItem> transactionItems = new ArrayList<>();
+        transactionItems.add(TransactWriteItem.builder().update(Update.builder()
                                 .tableName(ordersTableName)
                                 .key(orderKey)
                                 .updateExpression(buildUpdateExpression(entity))
                                 .expressionAttributeNames(Map.of("#st", "status", "#ver", "version"))
                                 .expressionAttributeValues(values)
                                 .conditionExpression("#ver = :expectedVersion")
-                                .build()).build(),
-                        TransactWriteItem.builder().update(Update.builder()
+                                .build()).build());
+        transactionItems.add(TransactWriteItem.builder().update(Update.builder()
                                 .tableName(inventoryTableName)
                                 .key(inventoryKey)
                                 .updateExpression(buildInventoryUpdateExpression(before.getStatus(), updated.getStatus()))
                                 .expressionAttributeValues(inventoryValues)
-                                .build()).build(),
-                        TransactWriteItem.builder().put(p -> p
+                                .build()).build());
+        for (String seatId : Optional.ofNullable(before.getSeatIds()).orElse(List.of())) {
+            transactionItems.add(buildSeatUpdateItem(before.getEventId(), seatId,
+                    mapSeatStatus(before.getStatus()), mapSeatStatus(updated.getStatus()),
+                    before.getId(), updated.getUpdatedAt()));
+        }
+        transactionItems.add(TransactWriteItem.builder().put(p -> p
                                 .tableName(historyTable.tableName())
                                 .item(historySchema.itemToMap(historyEntity, true))
                                 .conditionExpression("attribute_not_exists(orderId) AND attribute_not_exists(#seq)")
                                 .expressionAttributeNames(Map.of("#seq", "sequence"))
-                        ).build()
-                )
+                        ).build());
+
+        TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
+                .transactItems(transactionItems)
                 .build();
 
         return Mono.fromFuture(() -> asyncClient.transactWriteItems(request))
                 .thenReturn(updated);
+    }
+
+    private boolean hasValidSeatIds(TicketOrder order) {
+        List<String> seatIds = order.getSeatIds();
+        return seatIds != null && !seatIds.isEmpty() && seatIds.size() <= 10
+                && order.getQuantity() != null && seatIds.size() == order.getQuantity()
+                && new HashSet<>(seatIds).size() == seatIds.size();
+    }
+
+    private TransactWriteItem buildSeatUpdateItem(String eventId, String seatId, SeatStatus fromStatus,
+                                                   SeatStatus toStatus, String orderId, Instant now) {
+        int seatShard = Math.floorMod(seatId.hashCode(), SeatEntityMapper.SEAT_SHARD_COUNT);
+        Map<String, AttributeValue> key = Map.of(
+                "seatKey", AttributeValue.builder().s(eventId + "#S#" + seatShard).build(),
+                "seatId", AttributeValue.builder().s(seatId).build());
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":fromStatus", AttributeValue.builder().s(fromStatus.name()).build());
+        values.put(":toStatus", AttributeValue.builder().s(toStatus.name()).build());
+        values.put(":statusKey", AttributeValue.builder().s(eventId + "#" + toStatus.name() + "#S#" + seatShard).build());
+        values.put(":now", AttributeValue.builder().s(now.toString()).build());
+        String updateExpression = "SET #st = :toStatus, statusKey = :statusKey, updatedAt = :now";
+        if (toStatus == SeatStatus.AVAILABLE) {
+            updateExpression += " REMOVE orderId";
+        } else {
+            values.put(":orderId", AttributeValue.builder().s(orderId).build());
+            updateExpression += ", orderId = :orderId";
+        }
+        return TransactWriteItem.builder().update(Update.builder()
+                .tableName(seatsTableName)
+                .key(key)
+                .updateExpression(updateExpression)
+                .expressionAttributeNames(Map.of("#st", "status"))
+                .expressionAttributeValues(values)
+                .conditionExpression("#st = :fromStatus")
+                .build()).build();
+    }
+
+    private SeatStatus mapSeatStatus(TicketStatus orderStatus) {
+        return switch (orderStatus) {
+            case RESERVED -> SeatStatus.RESERVED;
+            case PENDING_CONFIRMATION -> SeatStatus.PENDING_CONFIRMATION;
+            case SOLD -> SeatStatus.SOLD;
+            case COMPLIMENTARY -> SeatStatus.COMPLIMENTARY;
+            case CANCELLED, EXPIRED -> SeatStatus.AVAILABLE;
+        };
     }
 
     private String buildInventoryUpdateExpression(TicketStatus from, TicketStatus to) {

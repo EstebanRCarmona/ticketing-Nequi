@@ -18,6 +18,7 @@ aws:
     table-orders: ${TABLE_ORDERS:ticketing-orders}
     table-order-history: ${TABLE_ORDER_HISTORY:ticketing-order-history}
     table-idempotency: ${TABLE_IDEMPOTENCY:ticketing-idempotency}
+    table-seats: ${TABLE_SEATS:ticketing-seats}
   sqs:
     endpoint: ${AWS_SQS_ENDPOINT:http://localhost:4566}
     processing-queue-url: ${AWS_SQS_PROCESSING_QUEUE_URL:http://localhost:4566/000000000000/order-processing-queue}

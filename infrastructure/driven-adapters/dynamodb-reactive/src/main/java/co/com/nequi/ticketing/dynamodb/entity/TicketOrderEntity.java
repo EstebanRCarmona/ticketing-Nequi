@@ -10,6 +10,7 @@ import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecon
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSecondarySortKey;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @Builder
@@ -22,6 +23,7 @@ public class TicketOrderEntity {
     private String userId;
     private String orderType;
     private Integer quantity;
+    private List<String> seatIds;
     private BigDecimal unitPrice;
     private BigDecimal totalAmount;
     private String currency;

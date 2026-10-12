@@ -31,6 +31,7 @@ public enum GeneralMessage {
     VAL_REQUIRED_REASON("VAL013", "reason is required", GeneralMessage.HTTP_400),
     VAL_INVALID_EVENT_DATE("VAL014", "eventDate must be a valid ISO-8601 instant", GeneralMessage.HTTP_400),
     VAL_INVALID_TEXT_LENGTH("VAL015", "text length is invalid", GeneralMessage.HTTP_400),
+    VAL_INVALID_SEAT_SELECTION("VAL016", "Select between 1 and 10 distinct seat IDs", GeneralMessage.HTTP_400),
 
     // Security Errors (SECxxx)
     SEC_UNAUTHORIZED("SEC001", "Authentication header missing or invalid", GeneralMessage.HTTP_401),
@@ -44,6 +45,7 @@ public enum GeneralMessage {
     BUS_ORDER_NOT_FOUND("BUS005", "Order not found or unauthorized", GeneralMessage.HTTP_404),
     BUS_PAYMENT_REJECTED("BUS006", "Payment processing failed", GeneralMessage.HTTP_422),
     BUS_CONCURRENCY_CONFLICT("BUS007", "High concurrency conflict, please retry", GeneralMessage.HTTP_409),
+    BUS_SEAT_UNAVAILABLE("BUS008", "One or more selected seats are unavailable", GeneralMessage.HTTP_409),
 
     // Technical Errors (ERRxxx)
     TECH_DYNAMO_ERROR("ERR001", "Database operation failed", GeneralMessage.HTTP_500),

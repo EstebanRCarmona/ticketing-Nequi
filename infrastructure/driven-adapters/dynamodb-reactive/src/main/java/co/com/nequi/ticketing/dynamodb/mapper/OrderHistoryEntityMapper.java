@@ -34,6 +34,7 @@ public interface OrderHistoryEntityMapper {
                 .reasonCode(reasonCode)
                 .actor(actor.name())
                 .quantity(before.getQuantity())
+                .seatIds(before.getSeatIds())
                 .traceId(traceId)
                 .occurredAt(after.getUpdatedAt().toString())
                 .build();

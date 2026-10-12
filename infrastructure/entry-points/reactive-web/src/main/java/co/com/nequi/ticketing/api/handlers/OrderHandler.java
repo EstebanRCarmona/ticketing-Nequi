@@ -62,7 +62,7 @@ public class OrderHandler {
                 .flatMap(key -> request.bodyToMono(PurchaseOrderRequestDTO.class))
                 .doOnNext(dto -> logAppender.logRequest(endpoint, dto))
                 .flatMap(validationHelper::validate)
-                .flatMap(dto -> createOrderUseCase.execute(dto.eventId(), userId, dto.quantity(), idempotencyKey, hashBody(dto), traceId))
+                .flatMap(dto -> createOrderUseCase.execute(dto.eventId(), userId, dto.seatIds(), idempotencyKey, hashBody(dto), traceId))
                 .map(purchaseOrderDTOMapper::toResponseDTO)
                 .flatMap(response -> {
                     logAppender.logResponse(endpoint, response, System.currentTimeMillis() - startTime);

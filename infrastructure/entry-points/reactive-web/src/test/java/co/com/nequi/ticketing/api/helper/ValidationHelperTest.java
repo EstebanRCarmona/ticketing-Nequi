@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -39,13 +40,13 @@ class ValidationHelperTest {
     @Test
     void validateWithUnknownTypeShouldPassThrough() {
         StepVerifier.create(validationHelper.validate(new Object()))
-                .expectNextMatches(object -> object instanceof Object)
+            .expectNextMatches(Object.class::isInstance)
                 .verifyComplete();
     }
 
     @Test
     void validatePurchaseOrderWithBlankEventIdShouldReturnEventIdMessage() {
-        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("   ", 1);
+        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("   ", List.of("S-00001"));
 
         StepVerifier.create(validationHelper.validate(dto))
                 .expectErrorSatisfies(error -> {
@@ -56,20 +57,20 @@ class ValidationHelperTest {
     }
 
     @Test
-    void validatePurchaseOrderWithInvalidQuantityShouldReturnQuantityMessage() {
-        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("evt-1", 0);
+    void validatePurchaseOrderWithMissingSeatIdsShouldReturnQuantityMessage() {
+        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("evt-1", List.of());
 
         StepVerifier.create(validationHelper.validate(dto))
                 .expectErrorSatisfies(error -> {
                     BusinessException businessException = (BusinessException) error;
-                    assertEquals(GeneralMessage.VAL_INVALID_QUANTITY, businessException.getGeneralMessage());
+                    assertEquals(GeneralMessage.VAL_INVALID_SEAT_SELECTION, businessException.getGeneralMessage());
                 })
                 .verify();
     }
 
     @Test
     void validatePurchaseOrderWithValidDataShouldPassThrough() {
-        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("evt-1", 1);
+        PurchaseOrderRequestDTO dto = new PurchaseOrderRequestDTO("evt-1", List.of("S-00001"));
 
         StepVerifier.create(validationHelper.validate(dto))
                 .expectNextMatches(PurchaseOrderRequestDTO.class::isInstance)
@@ -179,9 +180,9 @@ class ValidationHelperTest {
     }
 
     @Test
-    void validateComplimentaryWithQuantityTooLowShouldReturnQuantityMessage() {
+    void validateComplimentaryWithMissingSeatsShouldReturnQuantityMessage() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(0)
+                .seatIds(List.of())
                 .recipient("Press")
                 .reason("Promo")
                 .build();
@@ -189,15 +190,15 @@ class ValidationHelperTest {
         StepVerifier.create(validationHelper.validate(dto))
                 .expectErrorSatisfies(error -> {
                     BusinessException businessException = (BusinessException) error;
-                    assertEquals(GeneralMessage.VAL_INVALID_QUANTITY, businessException.getGeneralMessage());
+                    assertEquals(GeneralMessage.VAL_INVALID_SEAT_SELECTION, businessException.getGeneralMessage());
                 })
                 .verify();
     }
 
     @Test
-    void validateComplimentaryWithQuantityTooHighShouldReturnQuantityMessage() {
+    void validateComplimentaryWithTooManySeatsShouldReturnQuantityMessage() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(101)
+                .seatIds(java.util.stream.IntStream.rangeClosed(1, 11).mapToObj("S-%05d"::formatted).toList())
                 .recipient("Press")
                 .reason("Promo")
                 .build();
@@ -205,7 +206,7 @@ class ValidationHelperTest {
         StepVerifier.create(validationHelper.validate(dto))
                 .expectErrorSatisfies(error -> {
                     BusinessException businessException = (BusinessException) error;
-                    assertEquals(GeneralMessage.VAL_INVALID_QUANTITY, businessException.getGeneralMessage());
+                    assertEquals(GeneralMessage.VAL_INVALID_SEAT_SELECTION, businessException.getGeneralMessage());
                 })
                 .verify();
     }
@@ -213,7 +214,7 @@ class ValidationHelperTest {
     @Test
     void validateComplimentaryWithBlankRecipientShouldReturnRecipientMessage() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(1)
+                .seatIds(List.of("S-00001"))
                 .recipient("   ")
                 .reason("Promo")
                 .build();
@@ -229,7 +230,7 @@ class ValidationHelperTest {
     @Test
     void validateComplimentaryWithBlankReasonShouldReturnReasonMessage() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(1)
+                .seatIds(List.of("S-00001"))
                 .recipient("Press")
                 .reason("   ")
                 .build();
@@ -245,7 +246,7 @@ class ValidationHelperTest {
     @Test
     void validateComplimentaryWithValidDataShouldPassThrough() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(5)
+                .seatIds(List.of("S-00001", "S-00002", "S-00003", "S-00004", "S-00005"))
                 .recipient("Press")
                 .reason("Promo")
                 .build();

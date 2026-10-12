@@ -3,6 +3,7 @@ package co.com.nequi.ticketing.dynamodb.adapter;
 import co.com.nequi.ticketing.dynamodb.entity.IdempotencyEntity;
 import co.com.nequi.ticketing.dynamodb.entity.OrderHistoryEntity;
 import co.com.nequi.ticketing.dynamodb.entity.TicketOrderEntity;
+import co.com.nequi.ticketing.model.enums.SeatStatus;
 import co.com.nequi.ticketing.dynamodb.mapper.IdempotencyEntityMapper;
 import co.com.nequi.ticketing.dynamodb.mapper.OrderHistoryEntityMapper;
 import co.com.nequi.ticketing.dynamodb.mapper.TicketOrderEntityMapper;
@@ -46,6 +47,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -55,6 +58,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
     private static final String INVENTORY_TABLE = "ticketing-inventory";
     private static final String HISTORY_TABLE = "ticketing-order-history";
     private static final String IDEMPOTENCY_TABLE = "ticketing-idempotency";
+        private static final String SEATS_TABLE = "ticketing-seats";
     private static final String ORDER_ID = "ord-1";
     private static final String EVENT_ID = "evt-1";
     private static final String USER_ID = "usr-1";
@@ -85,13 +89,14 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
 
         adapter = new DynamoDBTicketOrderRepositoryAdapter(
                 asyncClient, enhancedAsyncClient, orderMapper, historyMapper, idempotencyMapper,
-                ORDERS_TABLE, INVENTORY_TABLE, HISTORY_TABLE, IDEMPOTENCY_TABLE);
+                ORDERS_TABLE, INVENTORY_TABLE, HISTORY_TABLE, IDEMPOTENCY_TABLE, SEATS_TABLE);
     }
 
     private TicketOrder reservedOrder() {
         return TicketOrder.builder()
                 .id(ORDER_ID).eventId(EVENT_ID).userId(USER_ID)
                 .status(TicketStatus.RESERVED).quantity(2)
+                .seatIds(List.of("S-00001", "S-00002"))
                 .unitPrice(BigDecimal.valueOf(100)).totalAmount(BigDecimal.valueOf(200))
                 .version(1L).createdAt(Instant.now()).updatedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(600)).expiryShard(SHARD)
@@ -177,6 +182,54 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
     }
 
     @Test
+    void shouldConditionSelectedSeatsWithinReservationTransaction() {
+        TicketOrder order = reservedOrder();
+        OrderHistory history = OrderHistory.builder().orderId(ORDER_ID).sequence(1L).build();
+        IdempotencyRecord idempotency = IdempotencyRecord.builder().idempotencyKey("key").requestHash("hash").orderId(ORDER_ID).ttl(9999L).build();
+        when(orderMapper.toEntity(order)).thenReturn(TicketOrderEntity.builder().orderId(ORDER_ID).status("RESERVED").build());
+        when(historyMapper.toEntity(history)).thenReturn(OrderHistoryEntity.builder().orderId(ORDER_ID).sequence(1L).build());
+        when(idempotencyMapper.toEntity(idempotency)).thenReturn(IdempotencyEntity.builder().idempotencyKey("key").requestHash("hash").orderId(ORDER_ID).ttl(9999L).build());
+        mockTransactWrite();
+
+        StepVerifier.create(adapter.createOrderTransaction(order, history, idempotency)).expectNextCount(1).verifyComplete();
+
+        org.mockito.ArgumentCaptor<TransactWriteItemsRequest> captor = org.mockito.ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        org.mockito.Mockito.verify(asyncClient).transactWriteItems(captor.capture());
+        List<software.amazon.awssdk.services.dynamodb.model.TransactWriteItem> seatWrites = captor.getValue().transactItems().stream()
+                .filter(item -> item.update() != null && SEATS_TABLE.equals(item.update().tableName()))
+                .toList();
+        org.junit.jupiter.api.Assertions.assertEquals(2, seatWrites.size());
+        org.junit.jupiter.api.Assertions.assertTrue(seatWrites.stream()
+                .allMatch(item -> "#st = :fromStatus".equals(item.update().conditionExpression())));
+    }
+
+    @Test
+    void shouldRejectReservationWhenSeatConditionFails() {
+        TicketOrder order = reservedOrder();
+        OrderHistory history = OrderHistory.builder().orderId(ORDER_ID).sequence(1L).build();
+        IdempotencyRecord idempotency = IdempotencyRecord.builder().idempotencyKey("key").requestHash("hash").orderId(ORDER_ID).ttl(9999L).build();
+        when(orderMapper.toEntity(order)).thenReturn(TicketOrderEntity.builder().orderId(ORDER_ID).status("RESERVED").build());
+        when(historyMapper.toEntity(history)).thenReturn(OrderHistoryEntity.builder().orderId(ORDER_ID).sequence(1L).build());
+        when(idempotencyMapper.toEntity(idempotency)).thenReturn(IdempotencyEntity.builder().idempotencyKey("key").requestHash("hash").orderId(ORDER_ID).ttl(9999L).build());
+        TransactionCanceledException exception = TransactionCanceledException.builder()
+                .cancellationReasons(
+                        CancellationReason.builder().code("None").build(),
+                        CancellationReason.builder().code("None").build(),
+                        CancellationReason.builder().code("None").build(),
+                        CancellationReason.builder().code("ConditionalCheckFailed").build(),
+                        CancellationReason.builder().code("None").build(),
+                        CancellationReason.builder().code("None").build())
+                .build();
+        when(asyncClient.transactWriteItems(any(TransactWriteItemsRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(exception));
+
+        StepVerifier.create(adapter.createOrderTransaction(order, history, idempotency))
+                .expectErrorMatches(error -> error instanceof BusinessException businessException
+                        && businessException.getGeneralMessage() == co.com.nequi.ticketing.model.enums.GeneralMessage.BUS_SEAT_UNAVAILABLE)
+                .verify();
+    }
+
+    @Test
     void shouldFailWithInsufficientInventoryOnCreateOrder() {
         TicketOrder order = reservedOrder();
         OrderHistory history = OrderHistory.builder().orderId(ORDER_ID).sequence(1L).build();
@@ -229,6 +282,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.confirmOrderTransaction(order, PAYMENT_REF, TRACE_ID))
                 .expectNextMatches(o -> o.getStatus() == TicketStatus.PENDING_CONFIRMATION)
                 .verifyComplete();
+        assertSeatTransition(SeatStatus.RESERVED, SeatStatus.PENDING_CONFIRMATION);
     }
 
     @Test
@@ -260,7 +314,20 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.cancelOrderTransaction(order, "CUSTOMER_REQUEST", TRACE_ID))
                 .expectNextMatches(o -> o.getStatus() == TicketStatus.CANCELLED)
                 .verifyComplete();
+        assertSeatTransition(SeatStatus.RESERVED, SeatStatus.AVAILABLE);
     }
+
+        @Test
+        void shouldRejectLegacyOrderWithoutSeatIdsBeforeChangingInventory() {
+                TicketOrder legacyOrder = reservedOrder().toBuilder().seatIds(null).build();
+
+                StepVerifier.create(adapter.cancelOrderTransaction(legacyOrder, "CUSTOMER_REQUEST", TRACE_ID))
+                                .expectErrorMatches(error -> error instanceof BusinessException businessException
+                                                && businessException.getGeneralMessage() == co.com.nequi.ticketing.model.enums.GeneralMessage.BUS_INVALID_STATE_TRANSITION)
+                                .verify();
+
+                org.mockito.Mockito.verifyNoInteractions(asyncClient);
+        }
 
     // ── finalizeOrderSaleTransaction ──────────────────────────────────────────
 
@@ -274,6 +341,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.finalizeOrderSaleTransaction(order, TRACE_ID, "msg-1"))
                 .expectNextMatches(o -> o.getStatus() == TicketStatus.SOLD)
                 .verifyComplete();
+        assertSeatTransition(SeatStatus.PENDING_CONFIRMATION, SeatStatus.SOLD);
     }
 
     // ── rejectOrderPaymentTransaction ─────────────────────────────────────────
@@ -288,6 +356,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.rejectOrderPaymentTransaction(order, "BUS006", "Payment rejected", TRACE_ID))
                 .expectNextMatches(o -> o.getStatus() == TicketStatus.CANCELLED)
                 .verifyComplete();
+        assertSeatTransition(SeatStatus.PENDING_CONFIRMATION, SeatStatus.AVAILABLE);
     }
 
     @Test
@@ -314,6 +383,7 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.expireOrderTransaction(order, TRACE_ID))
                 .expectNextMatches(o -> o.getStatus() == TicketStatus.EXPIRED)
                 .verifyComplete();
+        assertSeatTransition(SeatStatus.RESERVED, SeatStatus.AVAILABLE);
     }
 
     @Test
@@ -378,5 +448,18 @@ class DynamoDBTicketOrderRepositoryAdapterTest {
         StepVerifier.create(adapter.findExpiredOrdersByShard(SHARD, Instant.now().getEpochSecond()))
                 .expectError(TechnicalException.class)
                 .verify();
+    }
+
+    private void assertSeatTransition(SeatStatus from, SeatStatus to) {
+        org.mockito.ArgumentCaptor<TransactWriteItemsRequest> captor = org.mockito.ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        org.mockito.Mockito.verify(asyncClient).transactWriteItems(captor.capture());
+        List<software.amazon.awssdk.services.dynamodb.model.TransactWriteItem> seatUpdates = captor.getValue().transactItems().stream()
+                .filter(item -> item.update() != null && SEATS_TABLE.equals(item.update().tableName()))
+                .toList();
+        assertEquals(2, seatUpdates.size());
+        assertTrue(seatUpdates.stream().allMatch(item -> from.name().equals(
+                item.update().expressionAttributeValues().get(":fromStatus").s())));
+        assertTrue(seatUpdates.stream().allMatch(item -> to.name().equals(
+                item.update().expressionAttributeValues().get(":toStatus").s())));
     }
 }

@@ -33,6 +33,7 @@ import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -71,10 +72,10 @@ class OrderHandlerTest {
 
     @Test
     void createOrder_withIdempotencyKey_shouldReturn201() {
-        PurchaseOrderRequestDTO dto = PurchaseOrderRequestDTO.builder().eventId("evt-1").quantity(2).build();
+        PurchaseOrderRequestDTO dto = PurchaseOrderRequestDTO.builder().eventId("evt-1").seatIds(List.of("S-00001", "S-00002")).build();
 
         when(validationHelper.validate(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(createOrderUseCase.execute(anyString(), anyString(), anyInt(), anyString(), anyString(), anyString()))
+        when(createOrderUseCase.execute(anyString(), anyString(), anyList(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just(SAMPLE_ORDER));
         when(purchaseOrderDTOMapper.toResponseDTO(any())).thenReturn(SAMPLE_RESPONSE);
 
@@ -109,7 +110,7 @@ class OrderHandlerTest {
                 .attribute(TraceAndSecurityFilter.USER_ID_HEADER, "usr-1")
                 .attribute(TraceAndSecurityFilter.TRACE_ID_HEADER, "trace-1")
                 .header(Constants.IDEMPOTENCY_KEY_HEADER, "idem-key-1")
-                .body(Mono.just(PurchaseOrderRequestDTO.builder().eventId("evt-1").quantity(2).build()));
+                .body(Mono.just(PurchaseOrderRequestDTO.builder().eventId("evt-1").seatIds(List.of("S-00001", "S-00002")).build()));
 
         StepVerifier.create(handler.createOrder(request))
                 .expectNextMatches(r -> r.statusCode().value() == 400)
@@ -118,10 +119,10 @@ class OrderHandlerTest {
 
     @Test
     void createOrder_withUseCaseError_shouldReturn409() {
-        PurchaseOrderRequestDTO dto = PurchaseOrderRequestDTO.builder().eventId("evt-1").quantity(2).build();
+        PurchaseOrderRequestDTO dto = PurchaseOrderRequestDTO.builder().eventId("evt-1").seatIds(List.of("S-00001", "S-00002")).build();
 
         when(validationHelper.validate(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(createOrderUseCase.execute(anyString(), anyString(), anyInt(), anyString(), anyString(), anyString()))
+        when(createOrderUseCase.execute(anyString(), anyString(), anyList(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new BusinessException(GeneralMessage.BUS_INSUFFICIENT_INVENTORY)));
 
         ServerRequest request = MockServerRequest.builder()

@@ -7,6 +7,7 @@ import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.exception.TechnicalException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
 import co.com.nequi.ticketing.model.gateways.InventoryRepository;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -16,16 +17,20 @@ public class GetEventUseCase {
 
     private final EventRepository eventRepository;
     private final InventoryRepository inventoryRepository;
+    private final SeatRepository seatRepository;
 
     public Mono<EventDetail> getEventDetail(String eventId) {
         return eventRepository.findById(eventId)
                 .switchIfEmpty(Mono.error(new BusinessException(GeneralMessage.BUS_EVENT_NOT_FOUND)))
-                .flatMap(event -> inventoryRepository.findByEventIdConsistent(eventId)
-                        .switchIfEmpty(Mono.error(new TechnicalException(GeneralMessage.TECH_INTERNAL_ERROR, new IllegalStateException("Event inventory missing"))))
-                        .map(inventory -> EventDetail.builder()
-                                .event(event)
-                                .inventory(inventory)
-                                .build()));
+                .flatMap(event -> Mono.zip(
+                    inventoryRepository.findByEventIdConsistent(eventId)
+                        .switchIfEmpty(Mono.error(new TechnicalException(GeneralMessage.TECH_INTERNAL_ERROR, new IllegalStateException("Event inventory missing")))),
+                    seatRepository.findAvailableSeats(eventId).collectList())
+                    .map(data -> EventDetail.builder()
+                        .event(event)
+                        .inventory(data.getT1())
+                        .availableSeats(data.getT2())
+                        .build()));
     }
 
     public Flux<Event> getAllPaginated(int limit, String cursor) {

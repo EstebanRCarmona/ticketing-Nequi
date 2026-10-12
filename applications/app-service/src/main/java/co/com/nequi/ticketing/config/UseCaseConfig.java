@@ -6,6 +6,7 @@ import co.com.nequi.ticketing.model.gateways.InventoryRepository;
 import co.com.nequi.ticketing.model.gateways.OrderHistoryRepository;
 import co.com.nequi.ticketing.model.gateways.PaymentGateway;
 import co.com.nequi.ticketing.model.gateways.QueueService;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import co.com.nequi.ticketing.model.gateways.TicketOrderRepository;
 import co.com.nequi.ticketing.usecase.CancelOrderUseCase;
 import co.com.nequi.ticketing.usecase.ConfirmOrderUseCase;
@@ -24,18 +25,18 @@ import org.springframework.context.annotation.Configuration;
 public class UseCaseConfig {
 
     @Bean
-    public CreateEventUseCase createEventUseCase(EventRepository eventRepository) {
-        return new CreateEventUseCase(eventRepository);
+    public CreateEventUseCase createEventUseCase(EventRepository eventRepository, SeatRepository seatRepository) {
+        return new CreateEventUseCase(eventRepository, seatRepository);
     }
 
     @Bean
-    public GetEventUseCase getEventUseCase(EventRepository eventRepository, InventoryRepository inventoryRepository) {
-        return new GetEventUseCase(eventRepository, inventoryRepository);
+    public GetEventUseCase getEventUseCase(EventRepository eventRepository, InventoryRepository inventoryRepository, SeatRepository seatRepository) {
+        return new GetEventUseCase(eventRepository, inventoryRepository, seatRepository);
     }
 
     @Bean
-    public CreateOrderUseCase createOrderUseCase(EventRepository eventRepository, TicketOrderRepository ticketOrderRepository, IdempotencyRepository idempotencyRepository, QueueService queueService) {
-        return new CreateOrderUseCase(eventRepository, ticketOrderRepository, idempotencyRepository, queueService);
+    public CreateOrderUseCase createOrderUseCase(EventRepository eventRepository, TicketOrderRepository ticketOrderRepository, IdempotencyRepository idempotencyRepository, QueueService queueService, SeatRepository seatRepository) {
+        return new CreateOrderUseCase(eventRepository, ticketOrderRepository, idempotencyRepository, queueService, seatRepository);
     }
 
     @Bean
@@ -59,8 +60,8 @@ public class UseCaseConfig {
     }
 
     @Bean
-    public CreateComplimentaryUseCase createComplimentaryUseCase(EventRepository eventRepository, TicketOrderRepository ticketOrderRepository, IdempotencyRepository idempotencyRepository) {
-        return new CreateComplimentaryUseCase(eventRepository, ticketOrderRepository, idempotencyRepository);
+    public CreateComplimentaryUseCase createComplimentaryUseCase(EventRepository eventRepository, TicketOrderRepository ticketOrderRepository, IdempotencyRepository idempotencyRepository, SeatRepository seatRepository) {
+        return new CreateComplimentaryUseCase(eventRepository, ticketOrderRepository, idempotencyRepository, seatRepository);
     }
 
     @Bean

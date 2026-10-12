@@ -11,6 +11,7 @@ import co.com.nequi.ticketing.model.enums.TicketStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder(toBuilder = true)
@@ -22,6 +23,7 @@ public class TicketOrder {
     private String userId;
     private OrderType orderType;
     private Integer quantity;
+    private List<String> seatIds;
     private BigDecimal unitPrice;
     private BigDecimal totalAmount;
     private String currency;

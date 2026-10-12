@@ -2,9 +2,12 @@ package co.com.nequi.ticketing.usecase;
 
 import co.com.nequi.ticketing.model.Event;
 import co.com.nequi.ticketing.model.Inventory;
+import co.com.nequi.ticketing.model.Seat;
+import co.com.nequi.ticketing.model.enums.SeatStatus;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
 import co.com.nequi.ticketing.model.gateways.InventoryRepository;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,8 +18,10 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class GetEventUseCaseTest {
@@ -25,12 +30,14 @@ class GetEventUseCaseTest {
 
     @Mock private EventRepository eventRepository;
     @Mock private InventoryRepository inventoryRepository;
+    @Mock private SeatRepository seatRepository;
 
     private GetEventUseCase getEventUseCase;
 
     @BeforeEach
     void setUp() {
-        getEventUseCase = new GetEventUseCase(eventRepository, inventoryRepository);
+        getEventUseCase = new GetEventUseCase(eventRepository, inventoryRepository, seatRepository);
+        lenient().when(seatRepository.findAvailableSeats(anyString())).thenReturn(Flux.empty());
     }
 
     @Test
@@ -40,9 +47,14 @@ class GetEventUseCaseTest {
 
         when(eventRepository.findById(EVENT_ID)).thenReturn(Mono.just(event));
         when(inventoryRepository.findByEventIdConsistent(EVENT_ID)).thenReturn(Mono.just(inventory));
+        when(seatRepository.findAvailableSeats(EVENT_ID)).thenReturn(Flux.just(
+            Seat.builder().eventId(EVENT_ID).seatId("S-00001").status(SeatStatus.AVAILABLE).build()));
 
         StepVerifier.create(getEventUseCase.getEventDetail(EVENT_ID))
-                .expectNextMatches(detail -> detail.getEvent().getId().equals(EVENT_ID) && detail.getInventory().getAvailable() == 100)
+                .expectNextMatches(detail -> detail.getEvent().getId().equals(EVENT_ID)
+                    && detail.getInventory().getAvailable() == 100
+                    && detail.getAvailableSeats().size() == 1
+                    && detail.getAvailableSeats().getFirst().getSeatId().equals("S-00001"))
                 .verifyComplete();
     }
 

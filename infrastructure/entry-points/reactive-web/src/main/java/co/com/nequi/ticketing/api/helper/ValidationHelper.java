@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashSet;
 
 @Component
 public class ValidationHelper {
@@ -36,8 +37,8 @@ public class ValidationHelper {
         if (isBlank(dto.eventId())) {
             return invalid(GeneralMessage.VAL_REQUIRED_EVENT_ID);
         }
-        if (dto.quantity() == null || dto.quantity() < 1) {
-            return invalid(GeneralMessage.VAL_INVALID_QUANTITY);
+        if (!validSeatIds(dto.seatIds())) {
+            return invalid(GeneralMessage.VAL_INVALID_SEAT_SELECTION);
         }
         return Mono.empty();
     }
@@ -72,8 +73,8 @@ public class ValidationHelper {
     }
 
     private Mono<Void> validateComplimentary(ComplimentaryRequestDTO dto) {
-        if (dto.quantity() == null || dto.quantity() < 1 || dto.quantity() > 100) {
-            return invalid(GeneralMessage.VAL_INVALID_QUANTITY);
+        if (!validSeatIds(dto.seatIds())) {
+            return invalid(GeneralMessage.VAL_INVALID_SEAT_SELECTION);
         }
         if (isBlank(dto.recipient())) {
             return invalid(GeneralMessage.VAL_REQUIRED_RECIPIENT);
@@ -90,6 +91,12 @@ public class ValidationHelper {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean validSeatIds(java.util.List<String> seatIds) {
+        return seatIds != null && !seatIds.isEmpty() && seatIds.size() <= 10
+                && seatIds.stream().noneMatch(this::isBlank)
+                && new HashSet<>(seatIds).size() == seatIds.size();
     }
 
     private boolean isIsoInstant(String value) {

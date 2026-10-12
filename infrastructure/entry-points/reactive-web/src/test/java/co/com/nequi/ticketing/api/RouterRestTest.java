@@ -103,7 +103,7 @@ class RouterRestTest {
                 .uri("/api/v1/orders")
                 .header("X-User-Id", "usr-1")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":2}")
+                .bodyValue("{\"eventId\":\"evt-1\",\"seatIds\":[\"S-00001\",\"S-00002\"]}")
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -115,7 +115,7 @@ class RouterRestTest {
                 .quantity(2).totalAmount(BigDecimal.valueOf(200))
                 .createdAt(Instant.now()).updatedAt(Instant.now()).build();
         when(validationHelper.validate(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(createOrderUseCase.execute(anyString(), anyString(), anyInt(), anyString(), anyString(), anyString()))
+        when(createOrderUseCase.execute(anyString(), anyString(), anyList(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just(order));
         when(purchaseOrderDTOMapper.toResponseDTO(any())).thenReturn(PurchaseOrderResponseDTO.builder().orderId("ord-1").status("RESERVED").build());
 
@@ -124,7 +124,7 @@ class RouterRestTest {
                 .header("X-User-Id", "usr-1")
                 .header("Idempotency-Key", "key-abc")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":2}")
+                .bodyValue("{\"eventId\":\"evt-1\",\"seatIds\":[\"S-00001\",\"S-00002\"]}")
                 .exchange()
                 .expectStatus().isCreated();
     }

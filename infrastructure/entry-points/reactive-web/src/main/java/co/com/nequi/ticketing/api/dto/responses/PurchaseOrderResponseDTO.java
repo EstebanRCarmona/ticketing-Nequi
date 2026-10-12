@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -13,6 +14,7 @@ public record PurchaseOrderResponseDTO(
         String eventId,
         String orderType,
         Integer quantity,
+        List<String> seatIds,
         String status,
         BigDecimal totalAmount,
         String currency,

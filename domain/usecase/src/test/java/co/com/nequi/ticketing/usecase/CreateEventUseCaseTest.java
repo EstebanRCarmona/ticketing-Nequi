@@ -6,6 +6,7 @@ import co.com.nequi.ticketing.model.Inventory;
 import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,18 +18,22 @@ import reactor.test.StepVerifier;
 import java.math.BigDecimal;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class CreateEventUseCaseTest {
 
     @Mock private EventRepository eventRepository;
+        @Mock private SeatRepository seatRepository;
 
     private CreateEventUseCase createEventUseCase;
 
     @BeforeEach
     void setUp() {
-        createEventUseCase = new CreateEventUseCase(eventRepository);
+        createEventUseCase = new CreateEventUseCase(eventRepository, seatRepository);
     }
 
     @Test
@@ -44,10 +49,14 @@ class CreateEventUseCaseTest {
 
         when(eventRepository.createWithInventory(any(Event.class), any(Inventory.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(seatRepository.createSeats(anyString(), anyInt())).thenReturn(Mono.empty());
+        when(eventRepository.activateEvent(anyString())).thenAnswer(invocation -> Mono.just(
+                Event.builder().id(invocation.getArgument(0)).listingKey("EVENT").build()));
 
         StepVerifier.create(createEventUseCase.execute(inputEvent))
                 .expectNextMatches(saved -> saved.getId() != null && saved.getListingKey().equals("EVENT"))
                 .verifyComplete();
+        verify(seatRepository).createSeats(anyString(), org.mockito.ArgumentMatchers.eq(100));
     }
 
     @Test
@@ -78,6 +87,9 @@ class CreateEventUseCaseTest {
 
         when(eventRepository.createWithInventory(any(Event.class), any(Inventory.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(seatRepository.createSeats(anyString(), anyInt())).thenReturn(Mono.empty());
+        when(eventRepository.activateEvent(anyString())).thenAnswer(invocation -> Mono.just(
+                Event.builder().id(invocation.getArgument(0)).currency("COP").build()));
 
         StepVerifier.create(createEventUseCase.execute(inputEvent))
                 .expectNextMatches(saved -> "COP".equals(saved.getCurrency()))

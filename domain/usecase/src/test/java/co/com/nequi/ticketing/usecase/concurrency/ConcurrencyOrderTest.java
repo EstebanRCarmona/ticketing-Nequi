@@ -4,14 +4,17 @@ import co.com.nequi.ticketing.model.Event;
 import co.com.nequi.ticketing.model.IdempotencyRecord;
 import co.com.nequi.ticketing.model.OrderHistory;
 import co.com.nequi.ticketing.model.TicketOrder;
+import co.com.nequi.ticketing.model.Seat;
 import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.enums.OrderType;
 import co.com.nequi.ticketing.model.enums.TicketStatus;
+import co.com.nequi.ticketing.model.enums.SeatStatus;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
 import co.com.nequi.ticketing.model.gateways.IdempotencyRepository;
 import co.com.nequi.ticketing.model.gateways.QueueService;
 import co.com.nequi.ticketing.model.gateways.TicketOrderRepository;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import co.com.nequi.ticketing.usecase.CreateOrderUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,28 +24,33 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 /**
  * Validates concurrency invariants of CreateOrderUseCase using an in-memory
- * AtomicInteger that mimics DynamoDB's conditional write (available >= qty).
+ * In-memory inventory and seat conditions mimic DynamoDB transactional writes.
  *
  * Key invariants verified:
  *  1. Total tickets sold never exceeds initial inventory (no overselling).
- *  2. Exactly (capacity / qty) orders succeed; the rest get BUS_INSUFFICIENT_INVENTORY.
+ *  2. Each seat can be reserved once; conflicting seat selections are rejected.
  *  3. Idempotency: replaying the same key returns the cached order, not a new one.
  *  4. Concurrent duplicate keys produce at most 1 actual DB write.
  *
@@ -63,9 +71,11 @@ class ConcurrencyOrderTest {
     @Mock private TicketOrderRepository ticketOrderRepository;
     @Mock private IdempotencyRepository idempotencyRepository;
     @Mock private QueueService          queueService;
+    @Mock private SeatRepository        seatRepository;
 
-    /** Simulates DynamoDB available counter with CAS — the core anti-oversell guard. */
+    /** Simulates conditional inventory and seat writes — the anti-oversell guard. */
     private final AtomicInteger available        = new AtomicInteger(TOTAL_CAPACITY);
+    private final Set<String> reservedSeats = ConcurrentHashMap.newKeySet();
     private final AtomicInteger successCount     = new AtomicInteger(0);
     private final AtomicInteger insufficientCount = new AtomicInteger(0);
     private final AtomicInteger unexpectedErrors  = new AtomicInteger(0);
@@ -75,6 +85,7 @@ class ConcurrencyOrderTest {
     @BeforeEach
     void setUp() {
         available.set(TOTAL_CAPACITY);
+        reservedSeats.clear();
         successCount.set(0);
         insufficientCount.set(0);
         unexpectedErrors.set(0);
@@ -88,8 +99,13 @@ class ConcurrencyOrderTest {
         when(eventRepository.findById(anyString())).thenReturn(Mono.just(event));
         when(idempotencyRepository.findByKey(anyString())).thenReturn(Mono.empty());
         when(queueService.sendExpireOrderMessage(anyString(), anyLong(), anyLong())).thenReturn(Mono.empty());
+        when(seatRepository.findSeats(anyString(), anyList())).thenAnswer(inv -> {
+            List<String> seatIds = inv.getArgument(1);
+            return Flux.fromIterable(seatIds).map(seatId -> Seat.builder()
+                .eventId(EVENT_ID).seatId(seatId).status(SeatStatus.AVAILABLE).build());
+        });
 
-        useCase = new CreateOrderUseCase(eventRepository, ticketOrderRepository, idempotencyRepository, queueService);
+        useCase = new CreateOrderUseCase(eventRepository, ticketOrderRepository, idempotencyRepository, queueService, seatRepository);
     }
 
     /** Configures the CAS-based inventory mock. Call this in each test that needs it. */
@@ -97,20 +113,21 @@ class ConcurrencyOrderTest {
         when(ticketOrderRepository.createOrderTransaction(any(), any(), any()))
                 .thenAnswer(inv -> {
                     TicketOrder order = inv.getArgument(0, TicketOrder.class);
-                    int qty = order.getQuantity();
-                    while (true) {
-                        int cur = available.get();
-                        if (cur < qty) {
+                    synchronized (reservedSeats) {
+                        if (order.getSeatIds().stream().anyMatch(reservedSeats::contains)) {
+                            return Mono.error(new BusinessException(GeneralMessage.BUS_SEAT_UNAVAILABLE));
+                        }
+                        if (available.get() < order.getQuantity()) {
                             return Mono.error(new BusinessException(GeneralMessage.BUS_INSUFFICIENT_INVENTORY));
                         }
-                        if (available.compareAndSet(cur, cur - qty)) {
-                            return Mono.just(order.toBuilder()
-                                    .id(UUID.randomUUID().toString())
-                                    .status(TicketStatus.RESERVED)
-                                    .createdAt(Instant.now())
-                                    .updatedAt(Instant.now())
-                                    .build());
-                        }
+                        reservedSeats.addAll(order.getSeatIds());
+                        available.addAndGet(-order.getQuantity());
+                        return Mono.just(order.toBuilder()
+                                .id(UUID.randomUUID().toString())
+                                .status(TicketStatus.RESERVED)
+                                .createdAt(Instant.now())
+                                .updatedAt(Instant.now())
+                                .build());
                     }
                 });
     }
@@ -122,14 +139,15 @@ class ConcurrencyOrderTest {
      * Uses doFinally() so the latch is ALWAYS decremented regardless of
      * whether the signal is onComplete or onError.
      */
-    private void executeAndCount(String userId, String idemKey, int qty, CountDownLatch latch) {
-        useCase.execute(EVENT_ID, userId, qty, idemKey, "hash-" + idemKey, "trace")
+    private void executeAndCount(String userId, String idemKey, List<String> seatIds, CountDownLatch latch) {
+        useCase.execute(EVENT_ID, userId, seatIds, idemKey, "hash-" + idemKey, "trace")
                 .doFinally(signal -> latch.countDown())   // ← always called: onComplete OR onError
                 .subscribe(
                         order -> successCount.incrementAndGet(),
                         error -> {
                             if (error instanceof BusinessException be
-                                    && be.getGeneralMessage() == GeneralMessage.BUS_INSUFFICIENT_INVENTORY) {
+                                    && (be.getGeneralMessage() == GeneralMessage.BUS_INSUFFICIENT_INVENTORY
+                                    || be.getGeneralMessage() == GeneralMessage.BUS_SEAT_UNAVAILABLE)) {
                                 insufficientCount.incrementAndGet();
                             } else {
                                 unexpectedErrors.incrementAndGet();
@@ -150,7 +168,8 @@ class ConcurrencyOrderTest {
             final int idx = i;
             Schedulers.boundedElastic().schedule(() -> {
                 try { startGate.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                executeAndCount("usr-" + idx, "key-" + idx, QTY, endGate);
+                executeAndCount("usr-" + idx, "key-" + idx,
+                    List.of("S-%05d".formatted(idx % TOTAL_CAPACITY + 1)), endGate);
             });
         }
 
@@ -160,6 +179,7 @@ class ConcurrencyOrderTest {
         assertThat(finished).as("All requests must complete within %ds", TIMEOUT_SECS).isTrue();
         assertThat(unexpectedErrors.get()).as("No unexpected errors").isZero();
         assertThat(successCount.get()).as("Sold tickets ≤ capacity").isLessThanOrEqualTo(TOTAL_CAPACITY);
+        assertThat(reservedSeats).hasSize(TOTAL_CAPACITY);
         assertThat(available.get()).as("Remaining inventory ≥ 0 (no overselling)").isGreaterThanOrEqualTo(0);
         assertThat(successCount.get() + insufficientCount.get())
                 .as("Every request must resolve").isEqualTo(CONCURRENT_VUS);
@@ -176,7 +196,8 @@ class ConcurrencyOrderTest {
             final int idx = i;
             Schedulers.boundedElastic().schedule(() -> {
                 try { startGate.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                executeAndCount("usr-exact-" + idx, "key-exact-" + idx, QTY, endGate);
+                executeAndCount("usr-exact-" + idx, "key-exact-" + idx,
+                    List.of("S-%05d".formatted(idx + 1)), endGate);
             });
         }
 
@@ -193,7 +214,7 @@ class ConcurrencyOrderTest {
     void concurrentOrders_multipleTicketsPerOrder_shouldNeverOversell() throws InterruptedException {
         withCasInventoryMock();
         int users       = 20;
-        int qtyPerOrder = 2;  // 20 users × 2 tickets, capacity = 10 → max 5 succeed
+        int qtyPerOrder = 2;  // 20 users × 2 seats, capacity = 10 → max 5 succeed
         CountDownLatch startGate = new CountDownLatch(1);
         CountDownLatch endGate   = new CountDownLatch(users);
 
@@ -201,7 +222,9 @@ class ConcurrencyOrderTest {
             final int idx = i;
             Schedulers.boundedElastic().schedule(() -> {
                 try { startGate.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                executeAndCount("usr-multi-" + idx, "key-multi-" + idx, qtyPerOrder, endGate);
+                int firstSeat = (idx % (TOTAL_CAPACITY / qtyPerOrder)) * qtyPerOrder + 1;
+                executeAndCount("usr-multi-" + idx, "key-multi-" + idx,
+                    List.of("S-%05d".formatted(firstSeat), "S-%05d".formatted(firstSeat + 1)), endGate);
             });
         }
 
@@ -260,7 +283,7 @@ class ConcurrencyOrderTest {
             Schedulers.boundedElastic().schedule(() -> {
                 try { startGate.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
-                useCase.execute(EVENT_ID, "usr-same", QTY, sharedKey, sharedHash, "trace")
+                useCase.execute(EVENT_ID, "usr-same", List.of("S-00001"), sharedKey, sharedHash, "trace")
                         .doFinally(signal -> endGate.countDown())
                         .subscribe(
                                 order -> successCount.incrementAndGet(),

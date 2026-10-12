@@ -7,6 +7,7 @@ import reactor.core.publisher.Mono;
 
 public interface EventRepository {
     Mono<Event> createWithInventory(Event event, Inventory inventory);
+    Mono<Event> activateEvent(String eventId);
     Mono<Event> findById(String id);
     Flux<Event> findAllPaginated(int limit, String cursor);
 }

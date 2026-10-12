@@ -7,6 +7,7 @@ import co.com.nequi.ticketing.model.Event;
 import co.com.nequi.ticketing.model.enums.EventCategory;
 import co.com.nequi.ticketing.model.EventDetail;
 import co.com.nequi.ticketing.model.Inventory;
+import co.com.nequi.ticketing.model.Seat;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
@@ -47,6 +48,8 @@ public interface EventDTOMapper {
                 .currency(event.getCurrency())
                 .totalCapacity(event.getTotalCapacity())
                 .availability(availabilityDTO)
+                .availableSeatIds(detail.getAvailableSeats() == null ? java.util.List.of()
+                    : detail.getAvailableSeats().stream().map(Seat::getSeatId).toList())
                 .build();
     }
 

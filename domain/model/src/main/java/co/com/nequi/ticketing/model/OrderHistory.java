@@ -9,6 +9,7 @@ import co.com.nequi.ticketing.model.enums.ActorType;
 import co.com.nequi.ticketing.model.enums.TicketStatus;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder(toBuilder = true)
@@ -22,6 +23,7 @@ public class OrderHistory {
     private String reasonCode;
     private ActorType actor;
     private Integer quantity;
+    private List<String> seatIds;
     private String traceId;
     private String sqsMessageId;
     private Instant occurredAt;

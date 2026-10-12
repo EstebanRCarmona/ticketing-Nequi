@@ -63,6 +63,19 @@ public class DynamoDBEventRepositoryAdapter implements EventRepository {
     }
 
     @Override
+    public Mono<Event> activateEvent(String eventId) {
+        Key key = Key.builder().partitionValue(eventId).build();
+        return Mono.fromFuture(() -> eventsTable.getItem(key))
+                .switchIfEmpty(Mono.error(new IllegalStateException("Provisioning event was not found")))
+                                .flatMap(event -> {
+                                        event.setListingKey("EVENT");
+                                        return Mono.fromFuture(() -> eventsTable.updateItem(event));
+                                })
+                .map(eventMapper::toDomain)
+                .onErrorMap(e -> new TechnicalException(GeneralMessage.TECH_DYNAMO_ERROR, e));
+    }
+
+    @Override
     public Mono<Event> findById(String id) {
         return Mono.fromFuture(() -> eventsTable.getItem(Key.builder().partitionValue(id).build()))
                 .map(eventMapper::toDomain)

@@ -5,6 +5,7 @@ import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.Inventory;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
 
@@ -15,6 +16,7 @@ import java.util.UUID;
 public class CreateEventUseCase {
 
     private final EventRepository eventRepository;
+    private final SeatRepository seatRepository;
 
     public Mono<Event> execute(Event event) {
         return Mono.just(event)
@@ -27,7 +29,7 @@ public class CreateEventUseCase {
                     Event newEvent = e.toBuilder()
                             .id(eventId)
                             .currency(e.getCurrency() != null ? e.getCurrency() : "COP")
-                            .listingKey("EVENT")
+                            .listingKey("PROVISIONING")
                             .createdAt(now)
                             .updatedAt(now)
                             .build();
@@ -43,7 +45,9 @@ public class CreateEventUseCase {
                             .updatedAt(now)
                             .build();
 
-                    return eventRepository.createWithInventory(newEvent, newInventory);
+                        return eventRepository.createWithInventory(newEvent, newInventory)
+                            .flatMap(created -> seatRepository.createSeats(eventId, e.getTotalCapacity())
+                                .then(eventRepository.activateEvent(eventId)));
                 });
     }
 }

@@ -1,5 +1,7 @@
 package co.com.nequi.ticketing.dynamodb.entity;
 
+import java.util.List;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,6 +23,7 @@ public class OrderHistoryEntity {
     private String reasonCode;
     private String actor;
     private Integer quantity;
+    private List<String> seatIds;
     private String traceId;
     private String sqsMessageId;
     private String occurredAt;

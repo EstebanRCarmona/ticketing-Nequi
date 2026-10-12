@@ -36,6 +36,7 @@ import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -222,13 +223,14 @@ class EventHandlerTest {
     @Test
     void createComplimentary_asAdmin_shouldReturn201() {
         ComplimentaryRequestDTO dto = ComplimentaryRequestDTO.builder()
-                .quantity(5).recipient("VIP Press").reason("Promotion").build();
+                .seatIds(List.of("S-00001", "S-00002", "S-00003", "S-00004", "S-00005"))
+                .recipient("VIP Press").reason("Promotion").build();
         TicketOrder order = TicketOrder.builder().id("ord-1").status(TicketStatus.COMPLIMENTARY)
                 .quantity(5).totalAmount(BigDecimal.ZERO).createdAt(Instant.now()).updatedAt(Instant.now()).build();
 
         when(validationHelper.validate(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(createComplimentaryUseCase.execute(anyString(), anyString(), anyInt(),
-                anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(createComplimentaryUseCase.execute(any(CreateComplimentaryUseCase.ComplimentaryCommand.class),
+                anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just(order));
         when(purchaseOrderDTOMapper.toResponseDTO(any(TicketOrder.class)))
                 .thenReturn(PurchaseOrderResponseDTO.builder().orderId("ord-1").build());
@@ -282,7 +284,7 @@ class EventHandlerTest {
                 .attribute(TraceAndSecurityFilter.USER_ID_HEADER, "usr-1")
                 .attribute(TraceAndSecurityFilter.TRACE_ID_HEADER, "trace-1")
                 .header(Constants.IDEMPOTENCY_KEY_HEADER, "idem-key-1")
-                .body(Mono.just(ComplimentaryRequestDTO.builder().quantity(5).recipient("VIP").reason("Promo").build()));
+                .body(Mono.just(ComplimentaryRequestDTO.builder().seatIds(List.of("S-00001", "S-00002", "S-00003", "S-00004", "S-00005")).recipient("VIP").reason("Promo").build()));
 
         StepVerifier.create(handler.createComplimentary(request))
                 .expectNextMatches(r -> r.statusCode().value() == 400)

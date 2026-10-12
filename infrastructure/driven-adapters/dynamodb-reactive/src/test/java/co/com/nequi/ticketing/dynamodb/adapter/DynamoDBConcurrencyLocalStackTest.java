@@ -1,6 +1,7 @@
 package co.com.nequi.ticketing.dynamodb.adapter;
 
 import co.com.nequi.ticketing.dynamodb.entity.InventoryEntity;
+import co.com.nequi.ticketing.dynamodb.entity.SeatEntity;
 import co.com.nequi.ticketing.dynamodb.mapper.IdempotencyEntityMapperImpl;
 import co.com.nequi.ticketing.dynamodb.mapper.OrderHistoryEntityMapperImpl;
 import co.com.nequi.ticketing.dynamodb.mapper.TicketOrderEntityMapperImpl;
@@ -57,6 +58,7 @@ class DynamoDBConcurrencyLocalStackTest {
     private static final String TABLE_INVENTORY = "ticketing-inventory";
     private static final String TABLE_HISTORY = "ticketing-order-history";
     private static final String TABLE_IDEMPOTENCY = "ticketing-idempotency";
+    private static final String TABLE_SEATS = "ticketing-seats";
 
     @Container
     static LocalStackContainer localStack = new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.4"))
@@ -88,7 +90,8 @@ class DynamoDBConcurrencyLocalStackTest {
                 TABLE_ORDERS,
                 TABLE_INVENTORY,
                 TABLE_HISTORY,
-                TABLE_IDEMPOTENCY
+                TABLE_IDEMPOTENCY,
+                TABLE_SEATS
         );
 
         createTables();
@@ -147,6 +150,25 @@ class DynamoDBConcurrencyLocalStackTest {
                 .attributeDefinitions(AttributeDefinition.builder().attributeName("idempotencyKey").attributeType(ScalarAttributeType.S).build())
                 .billingMode(BillingMode.PAY_PER_REQUEST)
                 .build()).join();
+
+        asyncClient.createTable(CreateTableRequest.builder()
+                .tableName(TABLE_SEATS)
+                .keySchema(
+                        KeySchemaElement.builder().attributeName("seatKey").keyType(KeyType.HASH).build(),
+                        KeySchemaElement.builder().attributeName("seatId").keyType(KeyType.RANGE).build())
+                .attributeDefinitions(
+                        AttributeDefinition.builder().attributeName("seatKey").attributeType(ScalarAttributeType.S).build(),
+                        AttributeDefinition.builder().attributeName("seatId").attributeType(ScalarAttributeType.S).build(),
+                        AttributeDefinition.builder().attributeName("statusKey").attributeType(ScalarAttributeType.S).build())
+                .globalSecondaryIndexes(GlobalSecondaryIndex.builder()
+                        .indexName("gsi-seats-by-status")
+                        .keySchema(
+                                KeySchemaElement.builder().attributeName("statusKey").keyType(KeyType.HASH).build(),
+                                KeySchemaElement.builder().attributeName("seatId").keyType(KeyType.RANGE).build())
+                        .projection(Projection.builder().projectionType(ProjectionType.ALL).build())
+                        .build())
+                .billingMode(BillingMode.PAY_PER_REQUEST)
+                .build()).join();
     }
 
     @Test
@@ -168,6 +190,14 @@ class DynamoDBConcurrencyLocalStackTest {
                 .updatedAt(Instant.now().toString())
                 .build();
         inventoryTable.putItem(initialInventory).join();
+        DynamoDbAsyncTable<SeatEntity> seatsTable = enhancedClient.table(TABLE_SEATS, TableSchema.fromBean(SeatEntity.class));
+        for (int seatNumber = 1; seatNumber <= totalTicketsM; seatNumber++) {
+            String seatId = "S-%05d".formatted(seatNumber);
+            int shard = Math.floorMod(seatId.hashCode(), 16);
+            seatsTable.putItem(SeatEntity.builder().seatKey(eventId + "#S#" + shard).eventId(eventId).seatId(seatId)
+                    .status("AVAILABLE").statusKey(eventId + "#AVAILABLE#S#" + shard)
+                    .updatedAt(Instant.now().toString()).build()).join();
+        }
 
         AtomicInteger successfulReservations = new AtomicInteger();
         AtomicInteger rejectedReservations = new AtomicInteger();
@@ -176,6 +206,7 @@ class DynamoDBConcurrencyLocalStackTest {
                 .flatMap(i -> {
                     String orderId = UUID.randomUUID().toString();
                     Instant now = Instant.now();
+                    String seatId = "S-%05d".formatted((i - 1) % totalTicketsM + 1);
 
                     TicketOrder order = TicketOrder.builder()
                             .id(orderId)
@@ -183,6 +214,7 @@ class DynamoDBConcurrencyLocalStackTest {
                             .userId("user-" + i)
                             .orderType(OrderType.PURCHASE)
                             .quantity(1)
+                            .seatIds(java.util.List.of(seatId))
                             .unitPrice(BigDecimal.valueOf(50))
                             .totalAmount(BigDecimal.valueOf(50))
                             .currency("COP")
@@ -201,6 +233,7 @@ class DynamoDBConcurrencyLocalStackTest {
                             .reasonCode("ORDER_CREATED")
                             .actor(ActorType.API)
                             .quantity(1)
+                            .seatIds(java.util.List.of(seatId))
                             .traceId("trace-" + i)
                             .occurredAt(now)
                             .build();

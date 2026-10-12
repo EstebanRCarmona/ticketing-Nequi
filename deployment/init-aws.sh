@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "=== Initializing LocalStack AWS Resources (5 Multi-Tables & SQS Queues) ==="
+echo "=== Initializing LocalStack AWS Resources (6 DynamoDB Tables & SQS Queues) ==="
 
 # 1. ticketing-events table with GSI gsi-events-by-date
 awslocal dynamodb create-table \
@@ -66,7 +66,29 @@ awslocal dynamodb create-table \
     --key-schema AttributeName=idempotencyKey,KeyType=HASH \
     --billing-mode PAY_PER_REQUEST
 
-# 6. SQS Queues and DLQs
+# 6. ticketing-seats table, sharded by event and seat status
+awslocal dynamodb create-table \
+    --table-name ticketing-seats \
+    --attribute-definitions \
+        AttributeName=seatKey,AttributeType=S \
+        AttributeName=seatId,AttributeType=S \
+        AttributeName=statusKey,AttributeType=S \
+    --key-schema \
+        AttributeName=seatKey,KeyType=HASH \
+        AttributeName=seatId,KeyType=RANGE \
+    --global-secondary-indexes '[
+        {
+            "IndexName": "gsi-seats-by-status",
+            "KeySchema": [
+                {"AttributeName": "statusKey", "KeyType": "HASH"},
+                {"AttributeName": "seatId", "KeyType": "RANGE"}
+            ],
+            "Projection": {"ProjectionType": "ALL"}
+        }
+    ]' \
+    --billing-mode PAY_PER_REQUEST
+
+# 7. SQS Queues and DLQs
 awslocal sqs create-queue --queue-name order-processing-dlq
 awslocal sqs create-queue --queue-name order-expiration-dlq
 

@@ -129,7 +129,9 @@ public class EventHandler {
                 .doOnNext(dto -> logAppender.logRequest(endpoint, dto))
                 .flatMap(validationHelper::validate)
                 .flatMap(dto -> createComplimentaryUseCase.execute(
-                eventId, userId, dto.quantity(), dto.recipient(), dto.reason(), idempotencyKey, hashBody(dto), traceId))
+                    new CreateComplimentaryUseCase.ComplimentaryCommand(
+                        eventId, userId, dto.seatIds(), dto.recipient(), dto.reason()),
+                    idempotencyKey, hashBody(dto), traceId))
                 .map(purchaseOrderDTOMapper::toResponseDTO)
                 .flatMap(response -> {
                     logAppender.logResponse(endpoint, response, System.currentTimeMillis() - startTime);

@@ -6,12 +6,14 @@ import co.com.nequi.ticketing.model.enums.GeneralMessage;
 import co.com.nequi.ticketing.model.IdempotencyRecord;
 import co.com.nequi.ticketing.model.OrderHistory;
 import co.com.nequi.ticketing.model.enums.OrderType;
+import co.com.nequi.ticketing.model.enums.SeatStatus;
 import co.com.nequi.ticketing.model.TicketOrder;
 import co.com.nequi.ticketing.model.enums.TicketStatus;
 import co.com.nequi.ticketing.model.exception.BusinessException;
 import co.com.nequi.ticketing.model.gateways.EventRepository;
 import co.com.nequi.ticketing.model.gateways.IdempotencyRepository;
 import co.com.nequi.ticketing.model.gateways.QueueService;
+import co.com.nequi.ticketing.model.gateways.SeatRepository;
 import co.com.nequi.ticketing.model.gateways.TicketOrderRepository;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
@@ -22,6 +24,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
+import java.util.List;
+import java.util.HashSet;
+import java.util.Optional;
 
 @RequiredArgsConstructor
 public class CreateOrderUseCase {
@@ -30,34 +35,53 @@ public class CreateOrderUseCase {
     private final TicketOrderRepository ticketOrderRepository;
     private final IdempotencyRepository idempotencyRepository;
     private final QueueService queueService;
+    private final SeatRepository seatRepository;
 
-    public Mono<TicketOrder> execute(String eventId, String userId, int quantity, String idempotencyKey, String requestHash, String traceId) {
-        String fullIdempotencyKey = userId + UseCaseConstants.IDEMPOTENCY_SCOPE_ORDERS + idempotencyKey;
+    public Mono<TicketOrder> execute(String eventId, String userId, List<String> seatIds, String idempotencyKey, String requestHash, String traceId) {
+        return Optional.ofNullable(seatIds)
+                .filter(CreateOrderUseCase::isValidSeatSelection)
+                .map(validSeatIds -> {
+                    String fullIdempotencyKey = userId + UseCaseConstants.IDEMPOTENCY_SCOPE_ORDERS + idempotencyKey;
 
-        return idempotencyRepository.findByKey(fullIdempotencyKey)
-                .flatMap(record -> record.getRequestHash().equals(requestHash)
-                        ? ticketOrderRepository.findById(record.getOrderId())
-                        : Mono.error(new BusinessException(GeneralMessage.VAL_IDEMPOTENCY_MISMATCH)))
-                .switchIfEmpty(Mono.defer(() -> createNewOrder(eventId, userId, quantity, fullIdempotencyKey, requestHash, traceId)));
+                    return idempotencyRepository.findByKey(fullIdempotencyKey)
+                            .flatMap(existingRecord -> existingRecord.getRequestHash().equals(requestHash)
+                                    ? ticketOrderRepository.findById(existingRecord.getOrderId())
+                                    : Mono.error(new BusinessException(GeneralMessage.VAL_IDEMPOTENCY_MISMATCH)))
+                            .switchIfEmpty(Mono.defer(() -> createNewOrder(eventId, userId, List.copyOf(validSeatIds),
+                                    fullIdempotencyKey, requestHash, traceId)));
+                })
+                .orElseGet(() -> Mono.error(new BusinessException(GeneralMessage.VAL_INVALID_SEAT_SELECTION)));
     }
 
-    private Mono<TicketOrder> createNewOrder(String eventId, String userId, int quantity, String fullIdempotencyKey, String requestHash, String traceId) {
+    private static boolean isValidSeatSelection(List<String> seatIds) {
+        return !seatIds.isEmpty() && seatIds.size() <= 10
+                && seatIds.stream().noneMatch(seatId -> seatId == null || seatId.isBlank())
+                && new HashSet<>(seatIds).size() == seatIds.size();
+    }
+
+    private Mono<TicketOrder> createNewOrder(String eventId, String userId, List<String> seatIds, String fullIdempotencyKey, String requestHash, String traceId) {
         return eventRepository.findById(eventId)
                 .switchIfEmpty(Mono.error(new BusinessException(GeneralMessage.BUS_EVENT_NOT_FOUND)))
-                .flatMap(event -> {
+                .flatMap(event -> seatRepository.findSeats(eventId, seatIds).collectList()
+                        .flatMap(seats -> Mono.just(seats)
+                                .filter(availableSeats -> availableSeats.size() == seatIds.size()
+                                        && availableSeats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE))
+                                .switchIfEmpty(Mono.error(new BusinessException(GeneralMessage.BUS_SEAT_UNAVAILABLE)))
+                                .flatMap(availableSeats -> {
                     Instant now = Instant.now();
                     long deadlineEpoch = now.getEpochSecond() + UseCaseConstants.RESERVATION_TTL_SECONDS;
                     String orderId = UUID.randomUUID().toString();
                     String shard = UseCaseConstants.SHARD_PREFIX + ThreadLocalRandom.current().nextInt(UseCaseConstants.EXPIRY_SHARD_COUNT);
                     BigDecimal unitPrice = event.getTicketPrice() != null ? event.getTicketPrice() : BigDecimal.ZERO;
-                    BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(quantity));
+                    BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(seatIds.size()));
 
                     TicketOrder newOrder = TicketOrder.builder()
                             .id(orderId)
                             .eventId(eventId)
                             .userId(userId)
                             .orderType(OrderType.PURCHASE)
-                            .quantity(quantity)
+                            .quantity(seatIds.size())
+                            .seatIds(seatIds)
                             .unitPrice(unitPrice)
                             .totalAmount(totalAmount)
                             .currency(event.getCurrency() != null ? event.getCurrency() : UseCaseConstants.DEFAULT_CURRENCY)
@@ -77,7 +101,8 @@ public class CreateOrderUseCase {
                             .toStatus(TicketStatus.RESERVED)
                             .reasonCode(UseCaseConstants.REASON_ORDER_CREATED)
                             .actor(ActorType.API)
-                            .quantity(quantity)
+                            .quantity(seatIds.size())
+                            .seatIds(seatIds)
                             .traceId(traceId)
                             .occurredAt(now)
                             .build();
@@ -98,6 +123,6 @@ public class CreateOrderUseCase {
                             .flatMap(savedOrder -> queueService.sendExpireOrderMessage(orderId, deadlineEpoch, UseCaseConstants.RESERVATION_TTL_SECONDS)
                                     .onErrorResume(e -> Mono.empty())
                                     .thenReturn(savedOrder));
-                });
+                                                                })));
     }
 }

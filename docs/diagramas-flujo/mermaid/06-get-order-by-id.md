@@ -22,7 +22,7 @@ graph LR
     SuccessNode --> R200
 
     subgraph RESPONSES ["RESPUESTAS"]
-        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': {<br/>    'orderId': '...',<br/>    'eventId': '...',<br/>    'orderType': '...',<br/>    'quantity': 0,<br/>    'status': '...',<br/>    'totalAmount': 0.0,<br/>    'currency': '...',<br/>    'expiresAt': '... (solo si RESERVED o PENDING_CONFIRMATION)',<br/>    'releaseReason': '... (si aplica)',<br/>    'failure': { 'code': '...', 'description': '...' } (si aplica)<br/>  }<br/>}"]
+        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': {<br/>    'orderId': '...',<br/>    'eventId': '...',<br/>    'orderType': '...',<br/>    'seatIds': ['S-00001', 'S-00002'],<br/>    'quantity': 2,<br/>    'status': '...',<br/>    'totalAmount': 0.0,<br/>    'currency': '...',<br/>    'expiresAt': '... (solo si RESERVED o PENDING_CONFIRMATION)',<br/>    'releaseReason': '... (si aplica)',<br/>    'failure': { 'code': '...', 'description': '...' } (si aplica)<br/>  }<br/>}"]
         R_ERR["RESPONSE (ERROR)<br/>{<br/>  'statusCode': 'XXX',<br/>  'description': '...'<br/>}"]
     end
 

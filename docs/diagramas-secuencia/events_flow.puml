@@ -12,11 +12,14 @@ actor       "Client (ADMIN)"   as C
 participant "EventHandler"     as H
 participant "UseCase"          as UC
 participant "DynamoDB"         as DB
+participant "Seat records"     as SEATS
 
 == Create Event ==
 C -> H : POST /api/v1/events\n[X-Role: ADMIN]
 H -> UC : CreateEventUseCase
-UC -> DB : TransactWriteItems\n(events + inventory)
+UC -> DB : TransactWriteItems\n(event PROVISIONING + inventory)
+UC -> SEATS : BatchWriteItem\ncreate seats AVAILABLE
+UC -> DB : Update event listingKey → EVENT
 DB --> C : 201 { eventId, name, eventDate, ... }
 
 == List Events ==
@@ -28,13 +31,14 @@ DB --> C : 200 [ { eventId, name, ... } ]
 == Get Event Detail ==
 C -> H : GET /api/v1/events/{eventId}
 H -> UC : GetEventUseCase.getEventDetail()
-UC -> DB : GetItem event\n+ GetItem inventory
-DB --> C : 200 { event + real-time availability }
+UC -> DB : GetItem event + inventory
+UC -> SEATS : Query gsi-seats-by-status\n(eventId#AVAILABLE)
+DB --> C : 200 { event + inventory + availableSeatIds }
 
 == Issue Complimentary Tickets ==
 C -> H : POST /api/v1/events/{eventId}/complimentary\n[X-Role: ADMIN, Idempotency-Key]
 H -> UC : CreateComplimentaryUseCase
-UC -> DB : TransactWriteItems\n(order COMPLIMENTARY + inventory + idempotency + history)
+UC -> DB : TransactWriteItems\n(order + inventory + idempotency + history\n+ selected seats AVAILABLE → COMPLIMENTARY)
 DB --> C : 201 { orderId, status: COMPLIMENTARY }
 
 @enduml

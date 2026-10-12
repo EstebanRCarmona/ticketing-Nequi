@@ -20,11 +20,13 @@ graph LR
     ValidaPayload -- Yes --> ValidaCapacidad{totalCapacity<br/>> 0?}
 
     ValidaCapacidad -- No --> R400b[RESPONSE 400<br/>VAL002 - Invalid Quantity]
-    ValidaCapacidad -- Yes --> GenID[Generar eventId UUID<br/>Construir Event + Inventory<br/>currency default COP]
+    ValidaCapacidad -- Yes --> GenID[Generar eventId UUID<br/>Construir Event PROVISIONING + Inventory<br/>currency default COP]
 
-    GenID --> Transaccion["DynamoDB TransactWriteItems<br/>PUT event [attribute_not_exists]<br/>PUT inventory [attribute_not_exists]"]
+    GenID --> Transaccion["DynamoDB TransactWriteItems<br/>PUT event PROVISIONING<br/>PUT inventory"]
 
-    Transaccion --> Exitosa{Exitosa?}
+    Transaccion --> ProvisionarAsientos["DynamoDB BatchWriteItem<br/>crear cada asiento AVAILABLE<br/>en lotes de 25"]
+    ProvisionarAsientos --> ActivarEvento["Update event listingKey → EVENT"]
+    ActivarEvento --> Exitosa{Exitosa?}
     Exitosa -- No --> R500[RESPONSE 500<br/>ERR001 - DynamoDB Error]
     Exitosa -- Yes --> SuccessNode(( ))
     SuccessNode --> R201
@@ -40,7 +42,7 @@ graph LR
     R500 --> EndNode
 
     class Start,SuccessNode,EndNode start_end;
-    class Payload,GenID,Transaccion process;
+    class Payload,GenID,Transaccion,ProvisionarAsientos,ActivarEvento process;
     class ValidaRol,ValidaPayload,ValidaCapacidad,Exitosa decision;
     class R201 success;
     class R400,R400b,R403,R500,R_ERR error;

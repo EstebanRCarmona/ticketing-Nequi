@@ -18,11 +18,12 @@ graph LR
 
     BuscarInventario --> ExisteInventario{Existe<br/>inventario?}
     ExisteInventario -- No --> R500[RESPONSE 500<br/>ERR999 - Inventory Missing]
-    ExisteInventario -- Yes --> SuccessNode(( ))
+    ExisteInventario -- Yes --> BuscarAsientos["Query gsi-seats-by-status<br/>en 16 shards eventId#AVAILABLE#S#n"]
+    BuscarAsientos --> SuccessNode(( ))
     SuccessNode --> R200
 
     subgraph RESPONSES ["RESPUESTAS"]
-        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': {<br/>    'eventId': '...',<br/>    'name': '...',<br/>    'eventDate': '...',<br/>    'venue': '...',<br/>    'category': '...',<br/>    'ticketPrice': 0.0,<br/>    'availability': {<br/>      'totalCapacity': 0,<br/>      'available': 0,<br/>      'reserved': 0,<br/>      'pendingConfirmation': 0,<br/>      'sold': 0,<br/>      'complimentary': 0,<br/>      'asOf': '...'<br/>    }<br/>  }<br/>}"]
+        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': {<br/>    'eventId': '...',<br/>    'name': '...',<br/>    'eventDate': '...',<br/>    'venue': '...',<br/>    'category': '...',<br/>    'ticketPrice': 0.0,<br/>    'availability': {<br/>      'totalCapacity': 0,<br/>      'available': 0,<br/>      'reserved': 0,<br/>      'pendingConfirmation': 0,<br/>      'sold': 0,<br/>      'complimentary': 0,<br/>      'asOf': '...'<br/>    },<br/>    'availableSeatIds': ['S-00001', 'S-00002']<br/>  }<br/>}"]
         R_ERR["RESPONSE (ERROR)<br/>{<br/>  'statusCode': 'XXX',<br/>  'description': '...'<br/>}"]
     end
 
@@ -30,7 +31,7 @@ graph LR
     R500 --> EndNode
 
     class Start,SuccessNode,EndNode start_end;
-    class BuscarEvento,BuscarInventario process;
+    class BuscarEvento,BuscarInventario,BuscarAsientos process;
     class ExisteEvento,ExisteInventario decision;
     class R200 success;
     class R404,R500,R_ERR error;

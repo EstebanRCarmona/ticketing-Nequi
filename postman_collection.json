@@ -79,7 +79,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"quantity\": 5,\n  \"recipient\": \"Prensa VIP\",\n  \"reason\": \"Promoción Medios\"\n}"
+              "raw": "{\n  \"seatIds\": [\"S-00001\", \"S-00002\", \"S-00003\", \"S-00004\", \"S-00005\"],\n  \"recipient\": \"Prensa VIP\",\n  \"reason\": \"Promoción Medios\"\n}"
             },
             "url": "{{baseUrl}}/api/v1/events/{{eventId}}/complimentary"
           }
@@ -115,7 +115,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"seatIds\": [\"S-00006\", \"S-00007\"]\n}"
             },
             "url": "{{baseUrl}}/api/v1/orders"
           }
@@ -199,7 +199,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 1\n}"
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"seatIds\": [\"S-00008\"]\n}"
             },
             "url": "{{baseUrl}}/api/v1/orders"
           }
@@ -235,7 +235,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"seatIds\": [\"S-00009\", \"S-00010\"]\n}"
             },
             "url": "{{baseUrl}}/api/v1/orders"
           }
@@ -275,7 +275,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"quantity\": 2\n}"
+              "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"seatIds\": [\"S-00006\", \"S-00007\"]\n}"
             },
             "url": "{{baseUrl}}/api/v1/orders"
           }

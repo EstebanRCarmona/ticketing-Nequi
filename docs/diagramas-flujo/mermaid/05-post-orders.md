@@ -31,13 +31,17 @@ graph LR
     BuscarEvento --> ExisteEvento{Existe<br/>evento?}
     ExisteEvento -- No --> R404[RESPONSE 404<br/>BUS001 - Event Not Found]
 
-    ExisteEvento -- Yes --> GenID["Generar orderId UUID<br/>expiryShard S#0..S#3<br/>expiresAt = now + 600s<br/>Construir orden RESERVED"]
+    ExisteEvento -- Yes --> ValidarSeats["DynamoDB GetItem por cada seatId<br/>verificar eventId y AVAILABLE"]
+    ValidarSeats --> SeatsDisponibles{Todos los asientos<br/>disponibles?}
+    SeatsDisponibles -- No --> R409seat[RESPONSE 409<br/>BUS008 - Seat Unavailable]
+    SeatsDisponibles -- Yes --> GenID["Generar orderId UUID<br/>expiryShard S#0..S#3<br/>expiresAt = now + 600s<br/>quantity = seatIds.size()"]
 
-    GenID --> Transaccion["DynamoDB TransactWriteItems<br/>PUT idempotency [attribute_not_exists]<br/>UPDATE inventory available -= q, reserved += q [available >= q]<br/>PUT orden [attribute_not_exists]<br/>PUT historial [attribute_not_exists]"]
+    GenID --> Transaccion["DynamoDB TransactWriteItems<br/>PUT idempotency [attribute_not_exists]<br/>UPDATE inventory [available >= seatIds.size()]<br/>UPDATE cada seat AVAILABLE → RESERVED [status = AVAILABLE]<br/>PUT orden + seatIds<br/>PUT historial + seatIds"]
 
     Transaccion --> Exitosa{Exitosa?}
     Exitosa -- No --> ValidaConflicto{Tipo<br/>de error?}
     ValidaConflicto -- Inventario insuficiente --> R409inv[RESPONSE 409<br/>BUS002 - Insufficient Inventory]
+    ValidaConflicto -- Seat ya tomado --> R409seat
     ValidaConflicto -- Concurrencia --> Retry{Reintentos<br/>agotados?}
     Retry -- No --> Transaccion
     Retry -- Yes --> R409con[RESPONSE 409<br/>BUS007 - Concurrency Conflict]
@@ -48,7 +52,7 @@ graph LR
     SuccessNode --> R201
 
     subgraph RESPONSES ["RESPUESTAS"]
-        R201["RESPONSE (201)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'Resource created successfully',<br/>  'data': {<br/>    'orderId': '...',<br/>    'eventId': '...',<br/>    'orderType': 'PURCHASE',<br/>    'quantity': 0,<br/>    'status': 'RESERVED',<br/>    'totalAmount': 0.0,<br/>    'currency': 'COP',<br/>    'expiresAt': '...'<br/>  }<br/>}"]
+        R201["RESPONSE (201)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'Resource created successfully',<br/>  'data': {<br/>    'orderId': '...',<br/>    'eventId': '...',<br/>    'orderType': 'PURCHASE',<br/>    'seatIds': ['S-00001', 'S-00002'],<br/>    'quantity': 2,<br/>    'status': 'RESERVED',<br/>    'totalAmount': 0.0,<br/>    'currency': 'COP',<br/>    'expiresAt': '...'<br/>  }<br/>}"]
         R_ERR["RESPONSE (ERROR)<br/>{<br/>  'statusCode': 'XXX',<br/>  'description': '...'<br/>}"]
     end
 
@@ -56,6 +60,7 @@ graph LR
     R400b --> EndNode
     R404 --> EndNode
     R409inv --> EndNode
+    R409seat --> EndNode
     R409con --> EndNode
     R422 --> EndNode
     R500 --> EndNode
@@ -64,5 +69,5 @@ graph LR
     class Payload,BuscarIdempotencia,BuscarOrdenExistente,BuscarEvento,GenID,Transaccion,EnviarSQS process;
     class ValidaKey,ValidaPayload,ExisteIdempotencia,ValidaHash,ExisteEvento,Exitosa,ValidaConflicto,Retry decision;
     class R201 success;
-    class R400,R400b,R404,R409inv,R409con,R422,R500,R_ERR error;
+    class R400,R400b,R404,R409inv,R409seat,R409con,R422,R500,R_ERR error;
 ```

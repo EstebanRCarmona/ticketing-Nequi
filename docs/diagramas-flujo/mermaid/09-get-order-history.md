@@ -26,7 +26,7 @@ graph LR
     SuccessNode --> R200
 
     subgraph RESPONSES ["RESPUESTAS"]
-        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': [<br/>    {<br/>      'sequence': 1,<br/>      'fromStatus': null,<br/>      'toStatus': 'RESERVED',<br/>      'reasonCode': 'ORDER_CREATED',<br/>      'actor': 'API',<br/>      'quantity': 0,<br/>      'occurredAt': '...'<br/>    },<br/>    { ... }<br/>  ]<br/>}"]
+        R200["RESPONSE (200)<br/>{<br/>  'statusCode': '0',<br/>  'description': 'SUCCESS',<br/>  'data': [<br/>    {<br/>      'sequence': 1,<br/>      'fromStatus': null,<br/>      'toStatus': 'RESERVED',<br/>      'reasonCode': 'ORDER_CREATED',<br/>      'actor': 'API',<br/>      'seatIds': ['S-00001', 'S-00002'],<br/>      'quantity': 2,<br/>      'occurredAt': '...'<br/>    },<br/>    { ... }<br/>  ]<br/>}"]
         R_ERR["RESPONSE (ERROR)<br/>{<br/>  'statusCode': 'XXX',<br/>  'description': '...'<br/>}"]
     end
 

@@ -19,11 +19,13 @@ RouterRest → EventHandler / OrderHandler → ValidationHelper → UseCase → 
 | `driven-adapters/sqs-sender` | Async event publishing to SQS |
 | `driven-adapters/sqs-listener` | At-least-once SQS consumer |
 
+Architecture diagrams: [AWS deployment (PNG)](docs/arquitectura/ticketing-aws-architecture.png) · [Local development (PNG)](docs/arquitectura/ticketing-local-dev-architecture.png) · [Mermaid sources and notes](docs/arquitectura/architecture.md).
+
 ---
 
 ## 🔄 Order Lifecycle
 
-![Order lifecycle sequence diagram](docs/diagramas-secuencia/orders_flow.png)
+[Order lifecycle diagram (PNG)](docs/diagramas-secuencia/orders_flow.png) · [PlantUML source](docs/diagramas-secuencia/orders_flow.puml)
 
 The sequence diagram shows the main order states and transitions across reservation, confirmation, asynchronous payment, cancellation, expiration, and order history lookup.
 
@@ -71,8 +73,13 @@ chmod +x deployment/init-aws.sh
 
 ### 3. Start the full environment
 
+ios
 ```bash
 docker compose down && docker compose up --build -d
+```
+windows
+```sh
+docker compose down if ($LASTEXITCODE -eq 0) { docker compose up --build -d }
 ```
 
 The `down` ensures any previous containers are removed before starting fresh.
@@ -88,7 +95,7 @@ $content = $content -replace "`r`n", "`n"
 You do not need to run `init-aws.sh` manually. LocalStack executes it automatically when the container starts.
 
 This starts:
-- **LocalStack** — emulates DynamoDB (5 tables) and SQS (2 queues + 2 DLQs) on port `4566`
+- **LocalStack** — emulates DynamoDB (6 tables) and SQS (2 queues + 2 DLQs) on port `4566`
 - **App Ticketing Nequi** — reactive microservice on port `8080`
 
 Expected startup times:
@@ -127,7 +134,8 @@ docker compose down
 | `AWS_DYNAMODB_ENDPOINT` | `http://localhost:4566` | DynamoDB endpoint |
 | `AWS_SQS_ENDPOINT` | `http://localhost:4566` | SQS endpoint |
 | `TABLE_EVENTS` | `ticketing-events` | Events table name |
-| `TABLE_INVENTORY` | `ticketing-inventory` | Inventory table name |
+| `TABLE_INVENTORY` | `ticketing-inventory` | Aggregate inventory table name |
+| `TABLE_SEATS` | `ticketing-seats` | Individual seats table name |
 | `TABLE_ORDERS` | `ticketing-orders` | Orders table name |
 | `TABLE_ORDER_HISTORY` | `ticketing-order-history` | Audit history table |
 | `TABLE_IDEMPOTENCY` | `ticketing-idempotency` | Idempotency table |
@@ -186,6 +194,8 @@ curl "http://localhost:8080/api/v1/events?limit=10"
 curl http://localhost:8080/api/v1/events/<EVENT_ID>
 ```
 
+The detail response includes aggregate availability and `availableSeatIds`; choose IDs from this list when creating an order.
+
 ### Orders
 
 #### Create Order (Reserve) — `POST /api/v1/orders`
@@ -199,11 +209,11 @@ curl -X POST http://localhost:8080/api/v1/orders \
   -H "X-Trace-Id: trace-order-001" \
   -d '{
     "eventId": "<EVENT_ID>",
-    "quantity": 2
+    "seatIds": ["S-00001", "S-00002"]
   }'
 ```
 
-Returns HTTP `201` with order in `RESERVED` state. Reservation expires in **10 minutes**.
+Returns HTTP `201` with the selected IDs and an order in `RESERVED` state. Reservations expire in **10 minutes**. Requests must contain 1 to 10 distinct seat IDs.
 
 #### Get Order Status — `GET /api/v1/orders/{orderId}`
 
@@ -248,7 +258,7 @@ curl -X POST http://localhost:8080/api/v1/events/<EVENT_ID>/complimentary \
   -H "X-Role: ADMIN" \
   -H "Idempotency-Key: comp-key-001" \
   -d '{
-    "quantity": 5,
+    "seatIds": ["S-00003", "S-00004"],
     "recipient": "Prensa VIP",
     "reason": "Promoción Medios"
   }'
@@ -302,7 +312,7 @@ The first run downloads `localstack/localstack:3.4`, `testcontainers/ryuk` and `
 ### Coverage report (minimum 90 %)
 
 ```bash
-./gradlew test integrationTest jacocoMergedReport jacocoMergedVerification --no-configuration-cache
+./gradlew test jacocoMergedReport --no-configuration-cache
 ```
 
 - `jacocoMergedReport` merges the execution data of unit and integration tests.
@@ -358,7 +368,7 @@ Integration tests (`@Tag("integration")`) are excluded from mutation testing bec
 │   └── entry-points/
 │       └── reactive-web             # Handlers, router, filters, mappers
 ├── terraform/                       # Infrastructure as Code (AWS resources)
-│   ├── dynamo/                      # DynamoDB tables (5 tables + GSIs)
+│   ├── dynamo/                      # DynamoDB tables (6 tables + GSIs)
 │   ├── sqs/                         # SQS queues and DLQs
 │   └── api/                         # ECR, ECS Fargate, ALB, API Gateway, IAM
 ├── docs/
@@ -393,13 +403,23 @@ The `terraform/` folder contains the AWS infrastructure definition organized in 
 
 | Module | Resources |
 |---|---|
-| `terraform/dynamo/` | 5 DynamoDB tables with GSIs and TTL |
+| `terraform/dynamo/` | 6 DynamoDB tables with GSIs and TTL |
 | `terraform/sqs/` | 2 SQS queues + 2 DLQs with redrive policy |
-| `terraform/api/` | ECR, ECS Fargate, ALB, API Gateway, IAM roles, CloudWatch, Auto Scaling |
+| `terraform/api/` | ECR, ECS Fargate, ALB + NLB, API Gateway REST, WAFv2, IAM roles, CloudWatch, Auto Scaling |
 
-Each module has environment-specific variable files under `env/dev/`, `env/qa/` and `env/pdn/`.
+Each module has environment-specific files under `env/dev/`, `env/qa/` and `env/pdn/`. The checked-in tfvars target Floci with a fake account and must not be used to deploy to AWS.
 
 See [`terraform/README.md`](terraform/README.md) for deployment instructions.
+
+### Run Terraform locally with Floci
+
+With Docker Desktop running, start the AWS emulator and follow the three-module `dev` apply sequence in the Terraform guide:
+
+```powershell
+docker compose -f docker-compose.floci.yml up -d
+```
+
+Floci runs ECS in mock mode, so this validates resource configuration without starting the Java service. Its WAF API stores the Web ACL and association but does not filter live traffic; test real rate limiting in AWS.
 
 ---
 

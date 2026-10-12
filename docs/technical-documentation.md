@@ -55,6 +55,15 @@ PENDING_CONFIRMATION → EXPIRED                 (guardia de plazo cercano)
 
 **Por qué `CANCELLED` y `EXPIRED` en lugar de `AVAILABLE`:** Una orden es una entidad de negocio con su propio ciclo de vida. Reutilizar `AVAILABLE` (un concepto de inventario) como estado de orden era semánticamente incorrecto y habría confundido los reportes, la auditoría y la lógica de la máquina de estados.
 
+### 2.4 Asientos numerados
+
+Cada evento crea un registro por asiento con IDs deterministas (`S-00001`, `S-00002`, ...). En un sistema real estos IDs se reemplazarían por las etiquetas de sección/fila/asiento del plano del recinto. La orden y cada transición de auditoría conservan la lista de IDs asociados.
+
+Los asientos usan los estados `AVAILABLE`, `RESERVED`, `PENDING_CONFIRMATION`, `SOLD` y `COMPLIMENTARY`. Al cancelar o expirar una orden, sus asientos regresan a `AVAILABLE`; `CANCELLED` y `EXPIRED` son estados de la orden, no del asiento. Los estados de asientos y órdenes se modifican en la misma transacción.
+
+La creación de eventos escribe los asientos en lotes de 25. El evento permanece fuera del índice público (`PROVISIONING`) hasta terminar la creación y solo entonces se publica. Para esta prueba, `GET /events/{id}` incluye todos los IDs disponibles; para eventos grandes convendría ofrecer una consulta paginada de asientos para no devolver decenas de miles de IDs en una respuesta.
+
+
 ---
 
 ## 3. Concurrencia y Consistencia
@@ -62,13 +71,17 @@ PENDING_CONFIRMATION → EXPIRED                 (guardia de plazo cercano)
 
 ### 3.1 Bloqueo Optimista — Dos Niveles
 
-**Nivel 1 — Inventario (creación):**
+**Nivel 1 — Inventario y asientos (creación):**
 ```
 UPDATE inventory
 SET available = available - :q, reserved = reserved + :q
 CONDITION: available >= :q
+
+UPDATE each selected seat
+SET status = RESERVED, orderId = :orderId
+CONDITION: status = AVAILABLE
 ```
-Si dos solicitudes concurrentes intentan reservar los últimos 2 tickets simultáneamente, solo una tiene éxito. La otra recibe `ConditionalCheckFailed` → mapeado a `BUS_INSUFFICIENT_INVENTORY` (HTTP 409).
+La disponibilidad se consulta antes de la transacción para responder temprano, pero esa lectura no protege contra carreras. La protección real es la condición de cada asiento dentro de `TransactWriteItems`: si dos órdenes intentan el mismo asiento, DynamoDB confirma una transacción y rechaza la otra con `BUS_SEAT_UNAVAILABLE` (HTTP 409). El contador de inventario también se condiciona en la misma transacción.
 
 **Nivel 2 — Transiciones de estado de la orden:**
 ```
@@ -76,7 +89,7 @@ UPDATE orders
 SET status = :newStatus, version = :newVersion
 CONDITION: version = :expectedVersion
 ```
-Cada transición de estado verifica la `version` actual. Si dos procesos intentan transicionar la misma orden simultáneamente (ej., consumidor SQS + scheduler de expiración), solo uno gana. El perdedor recibe `ConditionalCheckFailed` → mapeado a `BUS_CONCURRENCY_CONFLICT` (HTTP 409) o ignorado silenciosamente para expiración (idempotente).
+Cada transición verifica la `version` de la orden y el estado esperado de todos sus asientos. Orden, inventario, asientos e historial se actualizan atómicamente. Si dos procesos intentan transicionar la misma orden simultáneamente (ej., consumidor SQS + scheduler de expiración), solo uno gana. El perdedor recibe `ConditionalCheckFailed` → mapeado a `BUS_CONCURRENCY_CONFLICT` (HTTP 409) o ignorado silenciosamente para expiración (idempotente).
 
 ### 3.2 Reintento con Backoff Exponencial + Jitter
 
@@ -98,7 +111,7 @@ El registro de idempotencia tiene un TTL de 24 horas (atributo TTL de DynamoDB),
 
 Dos mecanismos independientes garantizan que las reservas expiren:
 
-1. **Mensaje SQS diferido** — enviado al momento de la reserva con `delaySeconds = 600`. Se dispara una vez, con precisión.
+1. **Mensaje SQS diferido** — enviado al momento de la reserva con `delaySeconds = 600`. Se dispara una vez; la transacción cambia la orden a `EXPIRED`, libera el inventario agregado y cambia cada asiento de la orden a `AVAILABLE`.
 2. **Scheduler sweeper** — corre cada 60s, escanea 4 shards GSI (`S#0..S#3`) buscando órdenes donde `deadlineAt <= now`. Captura lo que el mensaje SQS haya perdido (ej., mensaje perdido, DLQ, reinicio del servicio).
 
 El diseño de 4 shards evita una partición caliente en el GSI. Cada shard maneja ~25% de las órdenes por expirar.
@@ -178,11 +191,20 @@ El diseño es stateless — cualquier número de réplicas puede correr simultá
 |---|---|---|---|
 | `ticketing-events` | `eventId` | — | `listingKey` + `eventDate` (paginación) |
 | `ticketing-inventory` | `eventId` | — | — |
+| `ticketing-seats` | `seatKey` | `seatId` | `statusKey` + `seatId` (`gsi-seats-by-status`) |
 | `ticketing-orders` | `orderId` | — | `expiryShard` + `deadlineAt` (barrido de expiración) |
 | `ticketing-order-history` | `orderId` | `sequence` | — |
 | `ticketing-idempotency` | `idempotencyKey` | — | — |
 
 El `expiryShard` distribuye las órdenes por expirar en 4 particiones para evitar una clave caliente en el GSI.
+
+La clave primaria `seatKey` distribuye cada evento en 16 shards deterministas derivados del ID del asiento. `statusKey` combina `eventId#status#shard` para repartir también las consultas del GSI `gsi-seats-by-status`; el detalle consulta los 16 shards. La reserva y los cambios posteriores escriben `statusKey` junto al estado para mantener el índice de consulta actualizado. La lectura del GSI es eventualmente consistente; una respuesta de disponibilidad puede quedar brevemente desactualizada, pero nunca permite la doble asignación porque la transacción valida el estado base del asiento.
+
+### 5.5 Entrada AWS y rate limiting
+
+El módulo API Gateway REST usa el VPC Link compatible con REST: API Gateway → NLB interno → ALB interno → ECS/Fargate. El NLB es el target del VPC Link y reenvía al ALB existente; el ALB sigue siendo el target group de ECS y la fuente de `ALBRequestCountPerTarget`.
+
+Un WAFv2 regional se asocia al stage REST con una regla rate-based que bloquea más de 1,000 requests por IP en cinco minutos por defecto. El límite es configurable. Floci valida y persiste el Web ACL y la asociación, pero no filtra el tráfico real, por lo que el bloqueo debe comprobarse en AWS.
 
 ---
 
@@ -210,9 +232,15 @@ El acceso basado en roles se aplica a nivel de handler vía `TraceAndSecurityFil
 
 En producción, `X-Role` y `X-User-Id` se extraerían de un JWT validado, no como headers de confianza plana.
 
-### 6.4 Límites de Cantidad
+### 6.4 Límite y validación de asientos
 
-`@Min(1)` en `PurchaseOrderRequestDTO.quantity` previene cantidades cero o negativas. Un máximo por orden (ej., 10 tickets) se agregaría como regla de negocio en `CreateOrderUseCase` para producción.
+Las solicitudes deben traer entre 1 y 10 IDs distintos. La cantidad de la orden se deriva de `seatIds.size()` y no se acepta como dato separado del cliente. El límite de diez mantiene holgura frente al máximo de 100 acciones por `TransactWriteItems`, que también incluye orden, inventario, idempotencia e historial.
+
+### 6.5 WAF y prueba local
+
+Terraform asocia un Web ACL regional al stage del API Gateway REST. La regla bloquea una IP que supere 1,000 solicitudes por ventana de cinco minutos; el umbral se configura con `waf_rate_limit`. Es una defensa de volumen por IP, no reemplaza autenticación/autorización, límites por usuario ni idempotencia.
+
+Floci permite crear el Web ACL, la regla rate-based y la asociación para validar la infraestructura, pero su WAF no inspecciona el tráfico de API Gateway. Por tanto, el `apply` local prueba el plano de control, no el bloqueo; esa conducta requiere validación en AWS.
 
 ---
 

@@ -24,7 +24,7 @@ graph LR
 
     EvaluaEstado -- PENDING_CONFIRMATION / SOLD /<br/>EXPIRED / COMPLIMENTARY --> R409[RESPONSE 409<br/>BUS004 - Invalid State Transition]
 
-    EvaluaEstado -- RESERVED --> Transaccion["DynamoDB TransactWriteItems<br/>UPDATE orden → CANCELLED, version+1 [version = expected]<br/>UPDATE inventory reserved -= q, available += q<br/>PUT historial [attribute_not_exists]"]
+    EvaluaEstado -- RESERVED --> Transaccion["DynamoDB TransactWriteItems<br/>UPDATE orden → CANCELLED, version+1 [version = expected]<br/>UPDATE inventory reserved -= q, available += q<br/>UPDATE selected seats RESERVED → AVAILABLE<br/>PUT historial + seatIds"]
 
     Transaccion --> Exitosa{Exitosa?}
     Exitosa -- No --> EsConflicto{ConditionalCheck<br/>Failed?}

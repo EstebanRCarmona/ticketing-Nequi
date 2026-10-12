@@ -30,7 +30,7 @@ graph LR
     EvaluaEstado -- RESERVED --> ValidaExpiracion{expiresAt<br/>> now?}
     ValidaExpiracion -- No --> R422[RESPONSE 422<br/>BUS003 - Order Expired]
 
-    ValidaExpiracion -- Yes --> Transaccion["DynamoDB TransactWriteItems<br/>UPDATE orden → PENDING_CONFIRMATION, version+1 [version = expected]<br/>UPDATE inventory reserved -= q, pendingConfirmation += q<br/>PUT historial [attribute_not_exists]"]
+    ValidaExpiracion -- Yes --> Transaccion["DynamoDB TransactWriteItems<br/>UPDATE orden → PENDING_CONFIRMATION, version+1 [version = expected]<br/>UPDATE inventory reserved -= q, pendingConfirmation += q<br/>UPDATE selected seats RESERVED → PENDING_CONFIRMATION<br/>PUT historial + seatIds"]
 
     Transaccion --> Exitosa{Exitosa?}
     Exitosa -- No --> EsConflicto{ConditionalCheck<br/>Failed?}

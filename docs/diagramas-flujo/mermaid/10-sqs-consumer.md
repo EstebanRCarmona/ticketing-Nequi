@@ -20,7 +20,7 @@ graph LR
 
     EstadoPending -- Yes --> CercaExpiracion{expiresAt - now<br/>< 5 segundos?}
 
-    CercaExpiracion -- Yes --> ExpiracionPago["DynamoDB TransactWriteItems<br/>UPDATE orden → EXPIRED, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, available += q<br/>PUT historial"]
+    CercaExpiracion -- Yes --> ExpiracionPago["DynamoDB TransactWriteItems<br/>UPDATE orden → EXPIRED, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, available += q<br/>UPDATE selected seats PENDING_CONFIRMATION → AVAILABLE<br/>PUT historial + seatIds"]
     ExpiracionPago --> DeleteMsgP2["SQS deleteMessage"]
     DeleteMsgP2 --> EndNode
 
@@ -28,12 +28,12 @@ graph LR
 
     CobrarPago --> PagoAprobado{Pago<br/>aprobado?}
 
-    PagoAprobado -- Yes --> FinalizarVenta["DynamoDB TransactWriteItems<br/>UPDATE orden → SOLD, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, sold += q<br/>PUT historial"]
+    PagoAprobado -- Yes --> FinalizarVenta["DynamoDB TransactWriteItems<br/>UPDATE orden → SOLD, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, sold += q<br/>UPDATE selected seats PENDING_CONFIRMATION → SOLD<br/>PUT historial + seatIds"]
     FinalizarVenta --> DeleteMsgP3["SQS deleteMessage"]
     DeleteMsgP3 --> SuccessVenta(( ))
     SuccessVenta --> R_SOLD["Orden → SOLD<br/>Inventario actualizado<br/>Historial registrado"]
 
-    PagoAprobado -- No --> RechazarPago["DynamoDB TransactWriteItems<br/>UPDATE orden → CANCELLED, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, available += q<br/>PUT historial PAYMENT_REJECTED"]
+    PagoAprobado -- No --> RechazarPago["DynamoDB TransactWriteItems<br/>UPDATE orden → CANCELLED, version+1 [version = expected]<br/>UPDATE inventory pendingConfirmation -= q, available += q<br/>UPDATE selected seats PENDING_CONFIRMATION → AVAILABLE<br/>PUT historial PAYMENT_REJECTED + seatIds"]
     RechazarPago --> DeleteMsgP4["SQS deleteMessage"]
     DeleteMsgP4 --> SuccessCancelled(( ))
     SuccessCancelled --> R_CANCELLED["Orden → CANCELLED<br/>releaseReason: PAYMENT_REJECTED<br/>Inventario liberado"]
@@ -48,7 +48,7 @@ graph LR
     ValidaDeadline -- No --> DeleteMsgE2["SQS deleteMessage<br/>mensaje stale"]
     DeleteMsgE2 --> EndNode
 
-    ValidaDeadline -- Yes --> ExpirarOrden["DynamoDB TransactWriteItems<br/>UPDATE orden → EXPIRED, version+1 [version = expected]<br/>UPDATE inventory reserved/pendingConfirmation -= q, available += q<br/>PUT historial RESERVATION_EXPIRED"]
+    ValidaDeadline -- Yes --> ExpirarOrden["DynamoDB TransactWriteItems<br/>UPDATE orden → EXPIRED, version+1 [version = expected]<br/>UPDATE inventory reserved/pendingConfirmation -= q, available += q<br/>UPDATE selected seats → AVAILABLE<br/>PUT historial RESERVATION_EXPIRED + seatIds"]
     ExpirarOrden --> ConflictoExp{ConditionalCheck<br/>Failed?}
     ConflictoExp -- Yes --> DeleteMsgE3["SQS deleteMessage<br/>ya fue procesada"]
     DeleteMsgE3 --> EndNode

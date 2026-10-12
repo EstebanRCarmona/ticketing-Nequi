@@ -19,9 +19,9 @@ RouterRest → EventHandler / OrderHandler → ValidationHelper → UseCase → 
 | `driven-adapters/sqs-sender` | Async event publishing to SQS |
 | `driven-adapters/sqs-listener` | At-least-once SQS consumer |
 
-[![Local development architecture](docs/arquitectura/ticketing-local-dev-architecture.png)](docs/arquitectura/ticketing-local-dev-architecture.png)
+[![AWS deployment architecture](docs/arquitectura/ticketing-aws-architecture.png)](docs/arquitectura/ticketing-aws-architecture.png)
 
-Related diagrams: [AWS deployment architecture](docs/arquitectura/ticketing-aws-architecture.png) · [Mermaid sources and notes](docs/arquitectura/architecture.md).
+Related diagrams: [Local development architecture](docs/arquitectura/ticketing-local-dev-architecture.png) · [Mermaid sources and notes](docs/arquitectura/architecture.md).
 
 ---
 
@@ -199,6 +199,22 @@ curl http://localhost:8080/api/v1/events/<EVENT_ID>
 ```
 
 The detail response includes aggregate availability and `availableSeatIds`; choose IDs from this list when creating an order.
+
+#### Inspect Seat Status in DynamoDB LocalStack
+
+To inspect each seat and its current status for an event, run this PowerShell command from the repository root. Replace `<EVENT_ID>` with the event ID returned by `POST /api/v1/events`:
+
+```powershell
+docker compose exec localstack awslocal dynamodb scan `
+  --table-name ticketing-seats `
+  --filter-expression "eventId = :eventId" `
+  --expression-attribute-values '{":eventId":{"S":"<EVENT_ID>"}}' `
+  --projection-expression "eventId, seatId, #status, orderId, updatedAt" `
+  --expression-attribute-names '{"#status":"status"}' `
+  --output table
+```
+
+The output includes the seat ID, its status (`AVAILABLE`, `RESERVED`, `PENDING_CONFIRMATION`, `SOLD` or `COMPLIMENTARY`), the associated order ID when applicable, and the last update time. The command uses `scan`, which is convenient for local inspection but reads the table; for large production tables, query the `gsi-seats-by-status` index using the event, status and seat shard instead.
 
 ### Orders
 

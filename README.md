@@ -19,13 +19,17 @@ RouterRest → EventHandler / OrderHandler → ValidationHelper → UseCase → 
 | `driven-adapters/sqs-sender` | Async event publishing to SQS |
 | `driven-adapters/sqs-listener` | At-least-once SQS consumer |
 
-Architecture diagrams: [AWS deployment (PNG)](docs/arquitectura/ticketing-aws-architecture.png) · [Local development (PNG)](docs/arquitectura/ticketing-local-dev-architecture.png) · [Mermaid sources and notes](docs/arquitectura/architecture.md).
+[![Local development architecture](docs/arquitectura/ticketing-local-dev-architecture.png)](docs/arquitectura/ticketing-local-dev-architecture.png)
+
+Related diagrams: [AWS deployment architecture](docs/arquitectura/ticketing-aws-architecture.png) · [Mermaid sources and notes](docs/arquitectura/architecture.md).
 
 ---
 
 ## 🔄 Order Lifecycle
 
-[Order lifecycle diagram (PNG)](docs/diagramas-secuencia/orders_flow.png) · [PlantUML source](docs/diagramas-secuencia/orders_flow.puml)
+[![Order lifecycle diagram](docs/diagramas-secuencia/orders_flow.png)](docs/diagramas-secuencia/orders_flow.png)
+
+[PlantUML source](docs/diagramas-secuencia/orders_flow.puml)
 
 The sequence diagram shows the main order states and transitions across reservation, confirmation, asynchronous payment, cancellation, expiration, and order history lookup.
 
@@ -427,7 +431,7 @@ Floci runs ECS in mock mode, so this validates resource configuration without st
 
 All diagrams are in the `docs/` folder.
 
-### High-level sequence diagrams (`docs/diagramas-secuencia/`)
+### [High-level sequence diagrams](docs/diagramas-secuencia/)
 
 Two PlantUML diagrams showing the interaction between layers at a high level:
 
@@ -436,7 +440,7 @@ Two PlantUML diagrams showing the interaction between layers at a high level:
 | Events API | `events_flow.puml` | `events_flow.png` |
 | Orders API | `orders_flow.puml` | `orders_flow.png` |
 
-### Per-endpoint flow diagrams (`docs/diagramas-flujo/`)
+### [Per-endpoint flow diagrams](docs/diagramas-flujo/)
 
 Detailed flow diagram for each endpoint and the SQS consumer, showing business decisions, DynamoDB operations, error paths and HTTP responses:
 
